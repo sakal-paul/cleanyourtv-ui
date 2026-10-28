@@ -19,7 +19,15 @@ public class HomeActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private String panelNext;
     /** Resting on a service's tile for a moment shows its panel (sliding past it doesn't). */
-    private final Runnable showPanel = () -> { if (panel != null) panel.show(panelNext); };
+    private final Runnable showPanel = () -> showPanel(panelNext);
+
+    /** The panel for this service (null: none), with the home screen's own title, cards and buttons hidden under it. */
+    private void showPanel(String pkg) {
+        if (panel == null) return;
+        panel.setNight(home.night());
+        panel.show(pkg);
+        home.setTopHidden(panel.isShowing());
+    }
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -33,6 +41,7 @@ public class HomeActivity extends Activity {
                 Math.round(ServicePanel.HEIGHT * TvUi.k(this))));
         setContentView(root);
         home.focusListener = this::followFocus;
+        home.toneListener = () -> panel.setNight(home.night());
         getWindow().setBackgroundDrawable(null);
         openFrom(getIntent());
     }
@@ -60,7 +69,7 @@ public class HomeActivity extends Activity {
         super.onNewIntent(intent);
         if (panel != null) {
             main.removeCallbacks(showPanel);
-            panel.show(null);
+            showPanel(null);
             home.setShelfFocusHidden(false);
         }
         if (home != null) home.reset(true);
@@ -87,7 +96,7 @@ public class HomeActivity extends Activity {
         String pkg = home.shelfFocusPackage();
         main.removeCallbacks(showPanel);
         if (!ServicePanel.isService(pkg)) {
-            panel.show(null);
+            showPanel(null);
         } else if (!pkg.equals(panel.service())) {
             panelNext = pkg;
             main.postDelayed(showPanel, panel.isShowing() ? 250 : 400);

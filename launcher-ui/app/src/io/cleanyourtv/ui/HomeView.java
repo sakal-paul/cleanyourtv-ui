@@ -169,6 +169,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private float tileStep, shelfLeft;
     /** Told whenever the focus moves (the service panel follows the app row). */
     Runnable focusListener;
+    /** Told on every step of the day ⇄ night change (the service panel follows the home screen's look). */
+    Runnable toneListener;
+    /** 1: the title, tabs, cards and corner buttons show; 0: a service panel stands in for them. */
+    private final Spring topVeil = new Spring(0.22f, 1f, 1);
     /** The service panel has the remote: the app row shows no focus meanwhile. */
     private boolean shelfFocusHidden;
     private final Map<String, Bitmap> crispLogos = new HashMap<>();   // logos already sized for the focused tile
@@ -678,6 +682,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         boolean heroFading = tickHeroFade(up);
         boolean bgFading = tickBackgroundFade(up);
         boolean nightMoving = tickNight(up);
+        boolean veilMoving = topVeil.step(dt);
+        if (veilMoving) motionDirty = true;
 
         if (drawerMoving || sheetMoving || motionDirty) updateMotion();
         // Opening and closing the drawer only moves the cached layers: redrawing the glass on every frame made the TV
@@ -705,7 +711,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
         // Busy: something is moving, or the sheet or the drawer is open.
         boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
-                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
+                || sheetMoving || toastFading || heroFading || bgFading || nightMoving || veilMoving || sheetOpen || sheet.value > 0.001f
                 || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
@@ -729,7 +735,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Drawer and sheet: the layers' positions and opacity (without redrawing their content). */
     private void updateMotion() {
         float d = drawer.value, dc = Ui.clamp(d), s = Ui.clamp(sheet.value);
-        float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc));
+        float home = 1 - s, top = home * (1 - smoothstep(0, 0.32f, dc)) * Ui.clamp(topVeil.value);
         float shift = SHIFT * k;
         float lift = -d * shift;
         show(heroLayer, top, lift);
@@ -954,6 +960,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** Redraws for the current night value (the glass now reads the lightened, blended or darkened photo). */
     private void nightChanged() {
+        if (toneListener != null) toneListener.run();
         if (bgFadeAt == 0 && bgTo != null && bgTo.frost != null) {
             scene.setFrost(frostOf(bgTo));
             if (bgTo.lightGlass == null) {
@@ -1827,6 +1834,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     String shelfFocusPackage() {
         if (sheetOpen || drawerOpen || zone != Z_SHELF || shelfIndex >= shelf.size()) return null;
         return shelf.get(shelfIndex).pkg;
+    }
+
+    /** 0 by day, 1 at night (in between while it changes). */
+    float night() {
+        return night;
+    }
+
+    /** A service panel stands in for the title, tabs, cards and corner buttons: they fade out under it. */
+    void setTopHidden(boolean hidden) {
+        topVeil.target = hidden ? 0 : 1;
+        motionDirty = true;
+        wake();
     }
 
     void setShelfFocusHidden(boolean hidden) {
