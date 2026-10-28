@@ -128,8 +128,7 @@ final class HomeApps {
     static List<Item> shelf(Context c, boolean extract) {
         List<Item> items = new ArrayList<>();
         PackageManager pm = c.getPackageManager();
-        for (String pkg : shelfPackages(c)) {
-            if (items.size() >= MAX_SHELF) break;
+        for (String pkg : shelfAll(c)) {
             Intent launch = launchIntent(pm, pkg);
             if (launch == null) continue;
             ResolveInfo ri = pm.resolveActivity(launch, 0);
@@ -169,7 +168,20 @@ final class HomeApps {
         return null;
     }
 
-    /** The shelf's packages in order: the user's list (Settings > Shelf), or the built-in one. */
+    /**
+     * Everything the scrolling shelf shows: the pinned apps first (the user's list, or the built-in one), then every
+     * other TV app by name, leaving out the hidden ones and the Live TV app (the Inputs button covers it).
+     */
+    static List<String> shelfAll(Context c) {
+        List<String> out = new ArrayList<>(shelfPackages(c));
+        Set<String> skip = new HashSet<>(out);
+        skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
+        skip.addAll(Prefs.hidden());
+        for (String[] app : shelfCandidates(c)) if (skip.add(app[0])) out.add(app[0]);
+        return out;
+    }
+
+    /** The shelf's pinned packages in order: the user's list (Settings > Shelf), or the built-in one. */
     static List<String> shelfPackages(Context c) {
         List<String> custom = Prefs.shelf();
         if (custom != null) return custom;
