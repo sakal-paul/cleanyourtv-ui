@@ -59,6 +59,9 @@ final class HomeApps {
     static final int INPUTS = 7, EXPLORE = 8;
     /** The TV's own network screen (Wi-Fi and Ethernet), from the bottom drawer. */
     static final int NETWORK = 9;
+    /** Corner buttons: switch the home screen between light and dark (the home screen handles it), and the
+     *  storage / memory / internet speed screen. */
+    static final int THEME = 10, SYSTEM_INFO = 11;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -425,6 +428,9 @@ final class HomeApps {
                 break;
             case EXPLORE:
                 intent = new Intent().setComponent(new ComponentName(a, ExploreActivity.class));
+                break;
+            case SYSTEM_INFO:
+                intent = new Intent().setComponent(new ComponentName(a, SystemInfoActivity.class));
                 break;
             default:
                 return false;

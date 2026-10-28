@@ -148,8 +148,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final int[] tabFirst = new int[4];          // the run's first page of each tab; [3] = the number of pages
     @SuppressWarnings("unchecked")
     private final List<Recs.Pick>[] tabPicks = new List[3];
-    private final Spring[] topFocus = new Spring[6];
-    private final RectF[] topRects = new RectF[6];
+    /** The top row: three tabs, then up to five round buttons. */
+    private static final int TOP_N = 8;
+    private final Spring[] topFocus = new Spring[TOP_N];
+    private final RectF[] topRects = new RectF[TOP_N];
     private final Spring[] cardFocus = new Spring[3];
     private final RectF[] cardRects = new RectF[3];
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
@@ -383,7 +385,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         setContentDescription("CleanYourTV UI");
         drawerLayer.setVisibility(INVISIBLE);
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < TOP_N; i++) {
             topFocus[i] = new Spring(0.26f, 0.85f, 0);
             topRects[i] = new RectF();
         }
@@ -477,11 +479,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         motionDirty = true;
     }
 
-    /** The three corner buttons, with their names in the current language. */
+    /** The corner buttons, with their names in the current language. */
     private void makeLightButtons() {
         lightButtons.clear();
         lightButtons.add(HomeApps.action(HomeApps.EXPLORE, "explore", Ui.tr("Explorar filmes e séries", "Explore movies and shows"), "play"));
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
+        lightButtons.add(HomeApps.action(HomeApps.THEME, "theme", Ui.tr("Modo claro", "Light mode"), "sunny"));
+        lightButtons.add(HomeApps.action(HomeApps.SYSTEM_INFO, "system-info",
+                Ui.tr("Armazenamento, memória e internet", "Storage, memory and internet speed"), "speed"));
         lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
     }
 
@@ -901,6 +906,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
+    /** The theme button: from what is on screen now to the other one, kept until changed again (Settings has Automatic). */
+    private void toggleTheme() {
+        Prefs.setTheme(nightTarget ? "light" : "dark");
+        checkNight(true);
+        showToast(nightTarget ? Ui.tr("Modo escuro", "Dark mode") : Ui.tr("Modo claro", "Light mode"));
+        motionDirty = true;
+        invalidate();
+    }
+
+    /** The theme button shows what pressing it switches to: the sun at night, the moon by day. */
+    private String buttonSymbol(HomeApps.Item it) {
+        if (it.kind == HomeApps.THEME) return nightTarget ? "sunny" : "bedtime";
+        return it.symbol;
+    }
+
+    private String buttonLabel(HomeApps.Item it) {
+        if (it.kind == HomeApps.THEME) return nightTarget ? Ui.tr("Modo claro", "Light mode") : Ui.tr("Modo escuro", "Dark mode");
+        return it.label;
+    }
+
     /** Advances the day ⇄ night transition; true while it runs. */
     private boolean tickNight(long up) {
         if (nightAt == 0) return false;
@@ -1216,7 +1241,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Paint text = clock ? lClockQuote : lQuote;
         // The corner buttons' names appear in this row: the quotes fade out while one of them has focus.
         float fade = 1;
-        for (int i = 3; i < 6 && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
+        for (int i = 3; i < TOP_N && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
         if (fade <= 0.01f) return;
         int textColor = text.getColor();
         text.setColor(Ui.alpha(textColor, fade));
@@ -2197,6 +2222,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             openSheet();
             return;
         }
+        if (it.kind == HomeApps.THEME) {
+            toggleTheme();
+            return;
+        }
         if (it.kind == HomeApps.INPUTS) {
             openDrawer();
             for (int i = 0; i < drawerItems.size(); i++) {
@@ -2472,7 +2501,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= others.size()) return "";
                 return label(others, i) + ", " + (i + 1) + Ui.tr(" de ", " of ") + others.size();
             case Z_TOP:
-                if (i >= 3) return label(lightButtons, i - 3);
+                if (i >= 3) return i - 3 < lightButtons.size() ? buttonLabel(lightButtons.get(i - 3)) : "";
                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
             case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
             case Z_SHELF:
@@ -2673,7 +2702,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             x = topRects[i].right + 4 * k;
         }
         float b = L_BUTTON * k, right = CONTENT_R * k, cy = L_BUTTON_CY * k;
-        for (int i = 2; i >= 0; i--) {
+        for (int i = lightButtons.size() - 1; i >= 0; i--) {
             topRects[3 + i].set(right - b, cy - b / 2, right, cy + b / 2);
             right -= b + L_BUTTON_GAP * k;
         }
@@ -2681,7 +2710,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // mirrored around the content's centre, so the tabs still come first and the buttons follow them, leftward.
         if (Ui.he) {
             float axis = (MARGIN + CONTENT_R) * k;
-            for (int i = 0; i < 6; i++) topRects[i].set(axis - topRects[i].right, topRects[i].top, axis - topRects[i].left, topRects[i].bottom);
+            for (int i = 0; i < TOP_N; i++) topRects[i].set(axis - topRects[i].right, topRects[i].top, axis - topRects[i].left, topRects[i].bottom);
         }
         float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
         float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
@@ -2950,7 +2979,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      */
     private void drawLightButtons(Canvas c) {
         applyTone();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < lightButtons.size(); i++) {
             RectF r = topRects[3 + i];
             float f = Ui.clamp(topFocus[3 + i].value), s = 1 + 0.1f * f, rad = r.width() / 2 * s;
             cell.set(r.centerX() - rad, r.centerY() - rad, r.centerX() + rad, r.centerY() + rad);
@@ -2965,10 +2994,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 fill.setColor(Ui.alpha(0xFFFFFFFF, f));
                 c.drawCircle(cell.centerX(), cell.centerY(), rad, fill);
             }
-            Symbols.draw(getContext(), c, lightButtons.get(i).symbol, cell.centerX(), cell.centerY(), 27 * k * s,
+            Symbols.draw(getContext(), c, buttonSymbol(lightButtons.get(i)), cell.centerX(), cell.centerY(), 27 * k * s,
                     blend(tone(L_INK, 0xEBFFFFFF), L_INK, f));
             if (f > 0.01f) {
-                String label = lightButtons.get(i).label;
+                String label = buttonLabel(lightButtons.get(i));
                 float half = lTip.measureText(label) / 2;
                 float x = Ui.he ? Math.max(r.centerX(), MARGIN * k + half) : Math.min(r.centerX(), CONTENT_R * k - half);
                 lTip.setAlpha(Math.round(255 * f));
@@ -3013,7 +3042,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             case Z_TOP:
                 if (dx != 0) {
                     // Mirrored for Hebrew (layoutLight): ← moves on to the next item, which sits further left.
-                    int next = Math.max(picksOn() ? 0 : 3, Math.min(5, topIndex + (Ui.he ? -dx : dx)));
+                    int next = Math.max(picksOn() ? 0 : 3, Math.min(2 + lightButtons.size(), topIndex + (Ui.he ? -dx : dx)));
                     if (next == topIndex) return true;
                     topIndex = next;
                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
