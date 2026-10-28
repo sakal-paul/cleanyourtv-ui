@@ -167,6 +167,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** The shelf's scroll, in tiles: the index of the first one in view (fractional while it slides). */
     private final Spring shelfScroll = new Spring(0.32f, 0.9f, 0);
     private float tileStep, shelfLeft;
+    /** Told whenever the focus moves (the service panel follows the app row). */
+    Runnable focusListener;
+    /** The service panel has the remote: the app row shows no focus meanwhile. */
+    private boolean shelfFocusHidden;
     private final Map<String, Bitmap> crispLogos = new HashMap<>();   // logos already sized for the focused tile
     /** Each app's tile like its Apple TV icon: brand colors (top, bottom) and logo (0 = as is, 1 = white, 2 = dark). */
     private static final Map<String, int[]> TILE_STYLE = new HashMap<>();
@@ -1800,7 +1804,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Sets the springs' targets from the current focus (snap: no animation). */
     private void retarget(boolean snap) {
         // Only the group whose focus changed is redrawn (moving along the shelf doesn't redraw the hero or capsule).
-        boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF ? shelfIndex : -1, snap);
+        boolean tilesChanged = aim(tileFocus, !sheetOpen && zone == Z_SHELF && !shelfFocusHidden ? shelfIndex : -1, snap);
         aimShelfScroll(snap);
         if (snap) placeTiles();
         boolean statusChanged = aim(statusFocus, !sheetOpen && zone == Z_STATUS ? statusIndex : -1, snap);
@@ -1816,6 +1820,20 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         heroDirty |= snap || heroChanged;
         drawerDirty |= snap || drawerChanged;
         spoken.focusMoved();
+        if (focusListener != null) focusListener.run();
+    }
+
+    /** The app whose tile has the focus in the app row, or null when the focus is anywhere else. */
+    String shelfFocusPackage() {
+        if (sheetOpen || drawerOpen || zone != Z_SHELF || shelfIndex >= shelf.size()) return null;
+        return shelf.get(shelfIndex).pkg;
+    }
+
+    void setShelfFocusHidden(boolean hidden) {
+        if (shelfFocusHidden == hidden) return;
+        shelfFocusHidden = hidden;
+        retarget(false);
+        wake();
     }
 
     /** Aims a group's springs (only `focused` at 1); returns true if any target changed. */

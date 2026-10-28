@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Android 12 and newer: the screensaver in :home, as on Android 9 and 10. -->
+<!-- Android 12 (API 31): the screensaver in the main process, as on Android 11. On a TCL G08 (Android 12) the one in
+     :home crashed at start (ClassCastException: BinderProxy cannot be cast to DreamService$DreamActivityCallback). -->
 <resources>
-    <bool name="dream_in_home">true</bool>
-    <bool name="dream_alone">false</bool>
+    <bool name="dream_in_home">false</bool>
+    <bool name="dream_alone">true</bool>
 </resources>

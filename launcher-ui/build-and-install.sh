@@ -125,7 +125,7 @@ esac
 
 # The screensaver, on unless SCREENSAVER=0. Android 11 runs it from the main process (ScreensaverAlone).
 if [ "${SCREENSAVER:-1}" = 1 ]; then
-  if [ "${TV_SDK:-0}" = 30 ]; then DREAM=$PKG/.ScreensaverAlone; else DREAM=$PKG/.Screensaver; fi
+  if [ "${TV_SDK:-0}" = 30 ] || [ "${TV_SDK:-0}" = 31 ]; then DREAM=$PKG/.ScreensaverAlone; else DREAM=$PKG/.Screensaver; fi
   WAS=$(tv 'settings get secure screensaver_components' 2>/dev/null | tr -d '\r' || true)
   tv "settings put secure screensaver_components $DREAM" >/dev/null
   case "$WAS" in
