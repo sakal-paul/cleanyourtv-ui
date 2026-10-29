@@ -58,8 +58,8 @@ public class TraktLoginActivity extends Activity {
     private void showMissing() {
         box.removeAllViews();
         box.addView(line(56, TvUi.INK, "Trakt"));
-        box.addView(line(28, TvUi.DIM, Ui.tr("Adicione trakt_client_id e trakt_client_secret ao config.json e envie com push-config.sh.",
-                "Add trakt_client_id and trakt_client_secret to config.json and send it with push-config.sh.")));
+        box.addView(line(28, TvUi.DIM, Ui.tr("Adicione trakt_client_id ao config.json e envie com push-config.sh.",
+                "Add trakt_client_id to config.json and send it with push-config.sh.")));
     }
 
     private void showSignedIn() {

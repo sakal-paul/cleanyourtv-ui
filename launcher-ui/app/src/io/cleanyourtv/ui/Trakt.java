@@ -33,7 +33,8 @@ import java.util.concurrent.Executors;
  * per title whether it's watched and its rating. Titles carry their TMDB ids, so the cards get their pictures and
  * details from TMDB as every other card. Fetched again every half hour; the last lists are kept for power-on.
  *
- * The app's Client ID and Secret come from config.json ("trakt_client_id", "trakt_client_secret").
+ * The app's Client ID comes from config.json ("trakt_client_id"), with "trakt_client_secret" only for an older app
+ * that has one.
  */
 final class Trakt {
     private static final String API = "https://api.trakt.tv";
@@ -55,9 +56,16 @@ final class Trakt {
         return c.getApplicationContext().getSharedPreferences("trakt", Context.MODE_PRIVATE);
     }
 
-    /** Both the Client ID and the Secret are set: the device sign-in needs the two. */
+    /** A Client ID is set. Trakt's newer (PKCE) apps have no secret, and the device sign-in works without one. */
     static boolean configured() {
-        return !Prefs.traktId().isEmpty() && !Prefs.traktSecret().isEmpty();
+        return !Prefs.traktId().isEmpty();
+    }
+
+    /** The app's credentials for a token request: the secret only when the app has one. */
+    private static JSONObject client(JSONObject body) throws Exception {
+        body.put("client_id", Prefs.traktId());
+        if (!Prefs.traktSecret().isEmpty()) body.put("client_secret", Prefs.traktSecret());
+        return body;
     }
 
     static boolean signedIn(Context c) {
@@ -77,10 +85,7 @@ final class Trakt {
 
     /** 1: signed in; 0: not approved yet (ask again after the interval); -1: the code expired or was refused. */
     static int poll(Context c, String deviceCode) throws Exception {
-        if (Prefs.traktSecret().isEmpty()) throw new IOException(Ui.tr("falta o trakt_client_secret no config.json",
-                "trakt_client_secret is missing from config.json"));
-        JSONObject body = new JSONObject().put("code", deviceCode).put("client_id", Prefs.traktId())
-                .put("client_secret", Prefs.traktSecret());
+        JSONObject body = client(new JSONObject().put("code", deviceCode));
         HttpURLConnection h = open("POST", "/oauth/device/token", null);
         send(h, body.toString());
         int code = h.getResponseCode();
@@ -120,8 +125,7 @@ final class Trakt {
         }
         IO.execute(() -> {
             try {
-                call(null, "POST", "/oauth/revoke", new JSONObject().put("token", token).put("client_id", Prefs.traktId())
-                        .put("client_secret", Prefs.traktSecret()).toString());
+                call(null, "POST", "/oauth/revoke", client(new JSONObject().put("token", token)).toString());
             } catch (Exception ignored) {
             }
         });
@@ -131,9 +135,8 @@ final class Trakt {
     private static String token(Context c) throws Exception {
         SharedPreferences p = sp(c);
         if (System.currentTimeMillis() > p.getLong("expires", 0) - 24 * 3600_000L && !p.getString("refresh", "").isEmpty()) {
-            JSONObject body = new JSONObject().put("refresh_token", p.getString("refresh", "")).put("client_id", Prefs.traktId())
-                    .put("client_secret", Prefs.traktSecret()).put("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
-                    .put("grant_type", "refresh_token");
+            JSONObject body = client(new JSONObject().put("refresh_token", p.getString("refresh", ""))
+                    .put("redirect_uri", "urn:ietf:wg:oauth:2.0:oob").put("grant_type", "refresh_token"));
             keep(c, new JSONObject(call(null, "POST", "/oauth/token", body.toString())));
         }
         return p.getString("access", "");
