@@ -158,13 +158,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] cardRects = new RectF[3];
     /** How wide each card is (1: the large one). A tall card the focus rests on for GROW_MS grows into the large one. */
     private final Spring[] cardWide = new Spring[3];
+    /** The lines under each card: shown (1) or faded out (0) while the card resizes, and whether they are the long ones. */
+    private final Spring[] textShow = new Spring[3];
+    private final boolean[] textWide = {true, false, false};
     private static final long GROW_MS = 1000;
     private int wideSlot, growFor = -1;
     private float lCardsTop, lCardH, lCardGap, lCardsLeft, lTallW, lWideW;
     private final Runnable growCard = this::growFocusedCard;
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
-    private Paint lTitleAmPm;
-    private String titleTime = "", titleAmPm = "";
+    private Paint lTitleAmPm, lZoneTime, lZone;
+    private String titleTime = "", titleAmPm = "", kolkataTime = "";
+    private static final java.util.TimeZone KOLKATA = java.util.TimeZone.getTimeZone("Asia/Kolkata");
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
 
@@ -414,6 +418,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) {
             cardFocus[i] = new Spring(0.32f, 0.78f, 0);
             cardWide[i] = new Spring(0.4f, 0.9f, i == 0 ? 1 : 0);
+            textShow[i] = new Spring(0.14f, 1f, 1);
             cardRects[i] = new RectF();
         }
         makeLightButtons();
@@ -610,6 +615,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lTitle = Ui.numbers(Ui.displaySemibold, 76 * k, L_INK);
         lTitle.setLetterSpacing(0.004f);
         lTitleAmPm = Ui.text(Ui.displayMedium, 34 * k, L_INK);
+        lZoneTime = Ui.numbers(Ui.displayMedium, 44 * k, L_DIM);
+        lZone = Ui.text(Ui.medium, 28 * k, L_DIM);
         lTab = Ui.text(Ui.medium, 30 * k, L_DIM);
         lTabOn = Ui.text(Ui.semibold, 30 * k, L_INK);
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
@@ -682,7 +689,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt) | cardSlide.step(dt);
-        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | step(cardWide, dt);
+        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | step(cardWide, dt) | stepCardText(dt);
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
@@ -781,6 +788,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String[] t = new java.text.SimpleDateFormat("h:mm|a", java.util.Locale.US).format(new java.util.Date(now)).split("\\|");
         titleTime = t[0];
         titleAmPm = t[1];
+        java.text.SimpleDateFormat kf = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.US);
+        kf.setTimeZone(KOLKATA);
+        kolkataTime = kf.format(new java.util.Date(now));
         heroDirty = true;
         return true;
     }
@@ -2839,8 +2849,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
     }
 
-    private boolean isWide(RectF r) {
-        return r.width() > lTallW * 1.6f;
+    /** Hides a card's lines while it grows or shrinks, swaps them (long or short) while hidden, then shows them. */
+    private boolean stepCardText(float dt) {
+        for (int i = 0; i < 3; i++) {
+            boolean wide = i == wideSlot;
+            boolean resizing = Math.abs(cardWide[i].value - (wide ? 1 : 0)) > 0.04f;
+            if (textWide[i] != wide && textShow[i].value < 0.03f) textWide[i] = wide;
+            textShow[i].target = resizing || textWide[i] != wide ? 0 : 1;
+        }
+        return step(textShow, dt);
     }
 
     /** Makes card `slot` the large one (the others tall). */
@@ -2850,7 +2867,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cardWide[i].target = i == slot ? 1 : 0;
             if (snap) cardWide[i].snap(cardWide[i].target);
         }
-        if (snap) placeCards();
+        if (snap) {
+            placeCards();
+            for (int i = 0; i < 3; i++) {
+                textWide[i] = i == slot;
+                textShow[i].snap(1);
+            }
+        }
         heroDirty = true;
         wake();
     }
@@ -3024,6 +3047,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float helloX = Ui.he ? CONTENT_R * k - helloW - gap - ampmW : MARGIN * k - Ui.leftBearing(lTitle, hello);
         c.drawText(hello, helloX, L_TITLE_BASE * k, lTitle);
         c.drawText(ampm, helloX + helloW + gap, L_TITLE_BASE * k, lTitleAmPm);
+        // Beside it, Kolkata's time in the secondary colour.
+        lZone.setColor(lTab.getColor());
+        lZoneTime.setColor(lTab.getColor());
+        float zx = helloX + helloW + gap + ampmW + 44 * k;
+        c.drawText(kolkataTime, zx, L_TITLE_BASE * k, lZoneTime);
+        c.drawText(Ui.tr("Calcutá", "Kolkata"), zx + lZoneTime.measureText(kolkataTime) + 14 * k, L_TITLE_BASE * k, lZone);
         // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
         // the white pill with a shadow and grows a little (the tvOS focus).
         float focus = Ui.clamp(topFocus[tab].value);
@@ -3125,7 +3154,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         Backdrop b = p == null ? null : recs.backdrop(p);
-        Bitmap img = b == null ? null : (isWide(base) ? b.wide : b.tall);
+        // The wide crop at every width (the tall one is its centre), so the photo doesn't switch while a card grows.
+        Bitmap img = b == null ? null : b.wide != null ? b.wide : b.tall;
         if (img != null) {
             roundImage(c, img, cell, r);
         } else {
@@ -3158,15 +3188,34 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p == null) return;
         // Focused: genre and rating, title, year · age rating · length, the story and the cast, over the picture.
         CardInfo info = f > 0.01f ? CardInfo.get(p.kind, p.id, this::infoReady) : null;
-        if (info != null) info.draw(c, cell, r, p.title, f, k * s);
+        if (info != null) {
+            // Drawn at the card's resting size under its scale, so the text grows with it instead of changing size.
+            c.save();
+            c.translate(cx, cy);
+            c.scale(s, s);
+            tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
+            float full = Ui.clamp((bw - lTallW) / Math.max(1, lWideW - lTallW));
+            info.draw(c, tmp, r0, p.title, f, k, full, lWideW, lTallW);
+            c.restore();
+        }
+        // The lines below, cut to the card's final width: they fade out while the card changes size and come back
+        // once it settles, so no letters appear or vanish one by one.
+        float show = Ui.clamp(textShow[i].value);
+        if (show < 0.01f) return;
+        float tw = textWide[i] ? lWideW : lTallW;
+        int titleColor = lCardTitle.getColor(), metaColor = lCardMeta.getColor();
+        lCardTitle.setColor(Ui.alpha(titleColor, show));
+        lCardMeta.setColor(Ui.alpha(metaColor, show));
         fitPaint.set(lCardTitle);
-        String title = TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString();
+        String title = TextUtils.ellipsize(p.title, fitPaint, tw, TextUtils.TruncateAt.END).toString();
         c.drawText(title, Ui.he ? base.right - lCardTitle.measureText(title) : base.left, base.bottom + 46 * k, lCardTitle);
         if (p.meta != null && !p.meta.isEmpty()) {   // every card: rating first, then genre, length and service
             fitPaint.set(lCardMeta);
-            String meta = TextUtils.ellipsize(isWide(base) ? p.meta : shortMeta(p.meta), fitPaint, bw, TextUtils.TruncateAt.END).toString();
+            String meta = TextUtils.ellipsize(textWide[i] ? p.meta : shortMeta(p.meta), fitPaint, tw, TextUtils.TruncateAt.END).toString();
             c.drawText(meta, Ui.he ? base.right - lCardMeta.measureText(meta) : base.left, base.bottom + 80 * k, lCardMeta);
         }
+        lCardTitle.setColor(titleColor);
+        lCardMeta.setColor(metaColor);
     }
 
     /**

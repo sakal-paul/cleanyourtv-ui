@@ -45,7 +45,7 @@ final class ServicePanel extends FrameLayout {
         SERVICES.put("com.sonyliv", new String[] {"Sony LIV", "237", "IN"});
         SERVICES.put("com.viewlift.hoichoi", new String[] {"hoichoi", "315", "IN"});
     }
-    private static final String WIDE_IMAGE = "https://image.tmdb.org/t/p/w1280", TALL_IMAGE = "https://image.tmdb.org/t/p/w500";
+    private static final String WIDE_IMAGE = "https://image.tmdb.org/t/p/w1280";
     private static final int ROW_MAX = 21;     // seven pages of three
     private static final int TABS = 1, CARDS = 2;
     // The home screen's light design (HomeView): margins, title, tab bar and cards, in 1080p pixels.
@@ -151,6 +151,7 @@ final class ServicePanel extends FrameLayout {
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             c.addView(img, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             InfoView info = new InfoView();
+            info.full = i == 0 ? 1 : 0;
             info.setAlpha(0);
             c.addView(info, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             infos[i] = info;
@@ -185,10 +186,10 @@ final class ServicePanel extends FrameLayout {
         }
     }
 
-    /** Moves each card and the lines under it to these lefts and widths (1080p). */
-    private void place(float[] l, float[] w) {
+    /** Moves each card (and with `lines`, the lines under it) to these lefts and widths (1080p). */
+    private void place(float[] l, float[] w, boolean lines) {
         for (int i = 0; i < 3; i++) {
-            for (View v : new View[] {cards[i], names[i], metas[i]}) {
+            for (View v : lines ? new View[] {cards[i], names[i], metas[i]} : new View[] {cards[i]}) {
                 LayoutParams lp = (LayoutParams) v.getLayoutParams();
                 lp.leftMargin = px(l[i]);
                 lp.width = px(w[i]);
@@ -197,17 +198,36 @@ final class ServicePanel extends FrameLayout {
         }
     }
 
-    /** Card `slot` becomes the large one: gliding there (animate), or at once for a new page. */
+    private int growGeneration;
+
+    /**
+     * Card `slot` becomes the large one: gliding there (animate), or at once for a new page. The lines under the cards
+     * fade out first, and come back with their new text once the cards have settled, so nothing rewraps mid-move; the
+     * details over the focused card cross-fade between their tall and wide versions.
+     */
     private void setWide(int slot, boolean animate) {
         if (growing != null) growing.cancel();
         main.removeCallbacks(grow);
         float[] fromL = lefts.clone(), fromW = widths.clone();
+        float[] fromFull = new float[3];
+        for (int i = 0; i < 3; i++) fromFull[i] = infos[i].full;
         wideSlot = slot;
         slots(slot, lefts, widths);
-        showPage();   // the large card's picture is the wide one, the tall cards' the poster
+        int gen = ++growGeneration;
         if (!animate) {
-            place(lefts, widths);
+            place(lefts, widths, true);
+            for (int i = 0; i < 3; i++) {
+                infos[i].full = i == slot ? 1 : 0;
+                infos[i].invalidate();
+            }
+            showPage();
             return;
+        }
+        for (int i = 0; i < 3; i++) {
+            for (View v : new View[] {names[i], metas[i]}) {
+                v.animate().cancel();
+                v.animate().alpha(0).setStartDelay(0).setDuration(110).start();
+            }
         }
         float[] l = new float[3], w = new float[3];
         growing = ValueAnimator.ofFloat(0, 1).setDuration(460);
@@ -217,8 +237,23 @@ final class ServicePanel extends FrameLayout {
             for (int i = 0; i < 3; i++) {
                 l[i] = fromL[i] + (lefts[i] - fromL[i]) * t;
                 w[i] = fromW[i] + (widths[i] - fromW[i]) * t;
+                infos[i].full = fromFull[i] + ((i == slot ? 1 : 0) - fromFull[i]) * t;
+                infos[i].invalidate();
             }
-            place(l, w);
+            place(l, w, false);
+        });
+        growing.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) {
+                if (gen != growGeneration) return;
+                place(lefts, widths, true);
+                showPage();
+                for (int i = 0; i < 3; i++) {
+                    for (View v : new View[] {names[i], metas[i]}) {
+                        v.animate().cancel();
+                        v.animate().alpha(1).setStartDelay(40).setDuration(240).setInterpolator(TvUi.EASE).start();
+                    }
+                }
+            }
         });
         growing.start();
     }
@@ -246,6 +281,7 @@ final class ServicePanel extends FrameLayout {
     /** Draws CardInfo over a card's picture (fetching it the first time). */
     private final class InfoView extends View {
         Tmdb.Title title;
+        float full;   // 1: the wide card's version of the details, 0: the tall one's (cross-faded while growing)
         private final RectF box = new RectF();
 
         InfoView() {
@@ -258,7 +294,7 @@ final class ServicePanel extends FrameLayout {
             CardInfo info = CardInfo.get(title.kind, title.id, this::invalidate);
             if (info == null) return;
             box.set(0, 0, getWidth(), getHeight());
-            info.draw(c, box, px(18), title.name, 1, k);
+            info.draw(c, box, px(18), title.name, 1, k, full, px((CONTENT_R - MARGIN) - 2 * TALL_W - 2 * CARD_GAP), px(TALL_W));
         }
     }
 
@@ -545,8 +581,9 @@ final class ServicePanel extends FrameLayout {
             names[i].setText(t == null ? "" : t.name);
             metas[i].setText(t == null ? "" : i == wideSlot ? details(t) : shortDetails(t));
             if (t != null) CardInfo.get(t.kind, t.id, null);   // ready by the time the card has the focus
-            String url = t == null ? null : i == wideSlot ? WIDE_IMAGE + t.backdrop
-                    : t.poster != null && !t.poster.isEmpty() ? TALL_IMAGE + t.poster : WIDE_IMAGE + t.backdrop;
+            // The same wide photo at every size (centre-cropped on a tall card), as on the home screen: nothing is
+            // swapped while a card grows or shrinks.
+            String url = t == null ? null : WIDE_IMAGE + t.backdrop;
             Images.load(images[i], url);
         }
         showInfo();

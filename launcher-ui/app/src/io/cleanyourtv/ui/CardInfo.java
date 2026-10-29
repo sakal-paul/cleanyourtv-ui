@@ -156,47 +156,62 @@ final class CardInfo {
     // MARK: - Drawing
 
     private static final Paint FILL = new Paint(Paint.ANTI_ALIAS_FLAG), LINE = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private static final TextPaint TEXT = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private static final int SMOOTH = Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG | Paint.LINEAR_TEXT_FLAG;
+    private static final TextPaint TEXT = new TextPaint(SMOOTH);
     private static final Path CLIP = new Path();
     private static final RectF R = new RectF();
     private static final Matrix M = new Matrix();
 
     /**
      * Over the card's picture at `card` (rounded `corner`), faded by `alpha`; `k` is the screen scale (1 at 1080p).
-     * A card wider than 600 px gets the full version.
+     * `full` (0 to 1) is how much of the wide card's version shows: while a card grows or shrinks the two versions
+     * cross-fade. Each is laid out once at its own final width (`fullW`, `shortW`) and only clipped to the card, so no
+     * word moves or rewraps while the card changes size.
      */
-    void draw(Canvas c, RectF card, float corner, String title, float alpha, float k) {
+    void draw(Canvas c, RectF card, float corner, String title, float alpha, float k, float full, float fullW, float shortW) {
         if (alpha <= 0.01f) return;
         float a = Math.min(1, alpha);
         int layer = c.saveLayerAlpha(card, Math.round(255 * a));
         CLIP.reset();
         CLIP.addRoundRect(card, corner, corner, Path.Direction.CW);
         c.clipPath(CLIP);
-        // Drawn at the card's origin, so the washes are built once per card size, not on every frame.
         c.translate(card.left, card.top);
-        LOCAL.set(0, 0, card.width(), card.height());
-        boolean full = card.width() > 600 * k;
-        wash(c, LOCAL, full);
         // The words rise into place as they fade in (eased: fast, then settling).
-        float e = 1 - (1 - a) * (1 - a) * (1 - a);
-        c.translate(0, (1 - e) * 18 * k);
+        float e = 1 - (1 - a) * (1 - a) * (1 - a), rise = (1 - e) * 18 * k;
+        full = Math.max(0, Math.min(1, full));
+        if (full < 0.99f) part(c, false, shortW, card.height(), title, k, 1 - full, rise);
+        if (full > 0.01f) part(c, true, fullW, card.height(), title, k, full, rise);
+        c.restoreToCount(layer);
+    }
+
+    /** One version (wide or tall) at its final size, faded by `a`. */
+    private void part(Canvas c, boolean full, float w, float h, String title, float k, float a, float rise) {
+        int layer = a < 0.99f ? c.saveLayerAlpha(0, 0, w, h, Math.round(255 * a)) : -1;
+        LOCAL.set(0, 0, w, h);
+        wash(c, LOCAL, full);
+        c.save();
+        c.translate(0, rise);
         if (full) drawFull(c, LOCAL, title, k);
         else drawShort(c, LOCAL, title, k);
-        c.restoreToCount(layer);
+        c.restore();
+        if (layer >= 0) c.restoreToCount(layer);
     }
 
     private static final RectF LOCAL = new RectF();
     private static LinearGradient washSide, washFoot, washShort;
-    private static float washW, washH;
+    private static float sideW, sideH, shortH;
 
     /** The dark wash under the words: from the left on the wide card, from the bottom on a tall one. */
     private static void wash(Canvas c, RectF r, boolean full) {
-        if (washSide == null || washW != r.width() || washH != r.height()) {
-            washW = r.width();
-            washH = r.height();
+        if (full && (washSide == null || sideW != r.width() || sideH != r.height())) {
+            sideW = r.width();
+            sideH = r.height();
             washSide = new LinearGradient(0, 0, r.width() * 0.75f, 0, new int[] {0xF2000000, 0xB3000000, 0x00000000},
                     new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP);
             washFoot = new LinearGradient(0, r.height() * 0.6f, 0, r.height(), 0x00000000, 0x99000000, Shader.TileMode.CLAMP);
+        }
+        if (!full && (washShort == null || shortH != r.height())) {
+            shortH = r.height();
             washShort = new LinearGradient(0, r.height() * 0.3f, 0, r.height(), new int[] {0x00000000, 0xB3000000, 0xF2000000},
                     new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP);
         }
@@ -230,7 +245,7 @@ final class CardInfo {
         float storyTop = lineMid + 26 * k;
         if (!overview.isEmpty()) {
             if (storyLayout == null || storyW != col) {
-                TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+                TextPaint p = new TextPaint(SMOOTH);
                 p.setTypeface(Ui.poppins);
                 p.setTextSize(22 * k);
                 p.setColor(SOFT);
@@ -255,7 +270,7 @@ final class CardInfo {
             float nx = fx + 12 * k + 18 * k, w = Math.min(card.right - 40 * k - nx, 340 * k);
             if (w > 80 * k) {
                 if (castLayout == null || castW != w) {
-                    TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+                    TextPaint p = new TextPaint(SMOOTH);
                     p.setTypeface(Ui.poppins);
                     p.setTextSize(18 * k);
                     p.setColor(SOFT);
@@ -275,7 +290,7 @@ final class CardInfo {
         float lineMid = card.bottom - 30 * k;
         float lineTop = lineMid - 14 * k;
         if (titleLayout == null || titleW != w || !title.equals(titleText)) {
-            TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            TextPaint p = new TextPaint(SMOOTH);
             p.setTypeface(Ui.displaySemibold);
             p.setTextSize(32 * k);
             p.setColor(WHITE);
