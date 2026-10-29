@@ -94,6 +94,11 @@ final class TvConfig {
                 if (key.isEmpty() || validTmdbKey(key)) Prefs.setTmdbKey(key);
                 else AppLog.w("config.json: tmdb_key skipped");
             }
+            if (o.has("trakt_client_id")) {
+                String id = o.optString("trakt_client_id").trim(), secret = o.optString("trakt_client_secret").trim();
+                if (id.isEmpty() || id.matches("[A-Za-z0-9_-]{20,128}")) Prefs.setTrakt(id, secret);
+                else AppLog.w("config.json: trakt_client_id skipped");
+            }
             if (o.has("tmdb_region")) {
                 String region = o.optString("tmdb_region").trim();
                 if (region.isEmpty() || region.equalsIgnoreCase("auto")) Prefs.setTmdbRegion("");

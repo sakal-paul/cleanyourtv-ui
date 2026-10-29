@@ -35,7 +35,7 @@ import java.util.concurrent.Executors;
 final class CardInfo {
     private static final String FACES = "https://image.tmdb.org/t/p/w185";
     private static final long FRESH_MS = 30 * 60_000L;
-    private static final int YELLOW = 0xFFFFC83D, WHITE = 0xFFFFFFFF, SOFT = 0xE6FFFFFF;
+    private static final int YELLOW = 0xFFFFC83D, WHITE = 0xFFFFFFFF, SOFT = 0xE6FFFFFF, TRAKT = 0xFFFF6B6B;
     private static final LruCache<String, CardInfo> CACHE = new LruCache<>(48);
     /** Titles being fetched, with who to tell when they arrive. */
     private static final java.util.Map<String, List<Runnable>> LOADING = new java.util.HashMap<>();
@@ -43,6 +43,8 @@ final class CardInfo {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     String genre = "", rating = "", year = "", cert = "", length = "", overview = "", cast = "";
+    private String kind;
+    private int id;
     final Bitmap[] faces = new Bitmap[3];
     private final BitmapShader[] faceShaders = new BitmapShader[3];
     private long at;
@@ -88,6 +90,8 @@ final class CardInfo {
         boolean movie = kind.equals("movie");
         JSONObject o = Tmdb.get("/" + kind + "/" + id + "?append_to_response=credits," + (movie ? "release_dates" : "content_ratings"));
         CardInfo c = new CardInfo();
+        c.kind = kind;
+        c.id = id;
         JSONArray genres = o.optJSONArray("genres");
         if (genres != null && genres.length() > 0) c.genre = genres.getJSONObject(0).optString("name");
         double vote = o.optDouble("vote_average", 0);
@@ -314,9 +318,13 @@ final class CardInfo {
         TEXT.setTypeface(Ui.medium);
         TEXT.setTextSize(size);
         float h = size * 1.8f, pad = size * 0.7f, gap = 14 * k;
-        String[] texts = {genre, rating.isEmpty() ? "" : rating + " ★"};
-        int[] colors = {WHITE, YELLOW};
-        for (int i = 0; i < 2; i++) {
+        // Then from Trakt, when connected: "Next: S2 E4 · 6/10", "New episode Thu" or "✓ Watched", and your rating.
+        String tag = Trakt.tag(kind, id);
+        int mine = Trakt.rating(kind, id);
+        String[] texts = {genre, rating.isEmpty() ? "" : rating + " ★", tag == null ? "" : tag,
+                mine > 0 ? Ui.tr("Você ", "You ") + mine + " ♥" : ""};
+        int[] colors = {WHITE, YELLOW, TRAKT, TRAKT};
+        for (int i = 0; i < texts.length; i++) {
             if (texts[i].isEmpty()) continue;
             float tw = TEXT.measureText(texts[i]), right = x + tw + 2 * pad;
             if (right > maxRight) continue;

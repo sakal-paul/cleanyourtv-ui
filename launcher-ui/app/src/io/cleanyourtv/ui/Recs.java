@@ -45,6 +45,8 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         boolean detailed;
+        String note;            // Trakt: "Next S2 E4" on an Up Next card (not saved with the picks)
+        long traktEpisode;      // Trakt: the next episode's id, for Mark as watched
         boolean localized;      // the title reads in the TV's language (not saved: it only orders a fresh list)
     }
 

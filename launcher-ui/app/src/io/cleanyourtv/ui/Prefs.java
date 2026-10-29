@@ -155,6 +155,16 @@ final class Prefs {
 
     static void setTmdbKey(String key) { put("tmdbKey", key.trim()); }
 
+    /** The Trakt app's Client ID and Secret (config.json "trakt_client_id", "trakt_client_secret"); empty: no Trakt. */
+    static String traktId() { return app == null ? "" : sp().getString("traktId", "").trim(); }
+
+    static String traktSecret() { return app == null ? "" : sp().getString("traktSecret", "").trim(); }
+
+    static void setTrakt(String id, String secret) {
+        sp().edit().putString("traktId", id.trim()).putString("traktSecret", secret.trim()).apply();
+        version++;
+    }
+
     /** Two letters (US, BR, GB...), or "" for the TV's own country. */
     static String tmdbRegion() {
         String v = app == null ? Config.TMDB_REGION : sp().getString("tmdbRegion", Config.TMDB_REGION);
