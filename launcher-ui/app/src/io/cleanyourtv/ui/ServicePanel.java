@@ -96,7 +96,7 @@ final class ServicePanel extends FrameLayout {
     private final FrameLayout[] cards = new FrameLayout[3];
     private final ImageView[] images = new ImageView[3];
     private final TextView[] names = new TextView[3];
-    private final TextView meta;
+    private final TextView[] metas = new TextView[3];
 
     ServicePanel(Activity a, Host host) {
         super(a);
@@ -151,10 +151,13 @@ final class ServicePanel extends FrameLayout {
             names[i] = n;
             put(n, lefts[i], CARDS_TOP + CARD_H + 46 - 31 * 0.94f, widths[i], -2);
         }
-        meta = TvUi.text(a, k, 25, Ui.medium, L_DIM);
-        meta.setSingleLine(true);
-        meta.setEllipsize(TextUtils.TruncateAt.END);
-        put(meta, MARGIN, CARDS_TOP + CARD_H + 80 - 25 * 0.94f, wide, -2);
+        for (int i = 0; i < 3; i++) {
+            TextView m = TvUi.text(a, k, 25, Ui.medium, L_DIM);
+            m.setSingleLine(true);
+            m.setEllipsize(TextUtils.TruncateAt.END);
+            metas[i] = m;
+            put(m, lefts[i], CARDS_TOP + CARD_H + 80 - 25 * 0.94f, widths[i], -2);
+        }
         setNight(0);
     }
 
@@ -183,7 +186,7 @@ final class ServicePanel extends FrameLayout {
         int ink = blend(L_INK, WHITE, n), dim = blend(L_DIM, N_DIM, n);
         titleView.setTextColor(ink);
         for (TextView t : names) t.setTextColor(ink);
-        meta.setTextColor(dim);
+        for (TextView m : metas) m.setTextColor(dim);
         status.setTextColor(dim);
         for (FrameLayout c : cards) c.setBackground(TvUi.round(blend(0xFFDADADF, 0xFF2C2C2E, n), px(18)));
         markTabs();
@@ -395,23 +398,21 @@ final class ServicePanel extends FrameLayout {
     private void slide() {
         float d = px(60);
         for (int i = 0; i < 3; i++) {
-            View[] vs = {cards[i], names[i]};
+            View[] vs = {cards[i], names[i], metas[i]};
             for (View v : vs) {
                 v.animate().cancel();
                 v.animate().alpha(0).translationX(-d).setDuration(180).start();
             }
         }
-        meta.animate().alpha(0).setDuration(180).start();
         main.postDelayed(() -> {
             showPage();
             for (int i = 0; i < 3; i++) {
-                View[] vs = {cards[i], names[i]};
+                View[] vs = {cards[i], names[i], metas[i]};
                 for (View v : vs) {
                     v.setTranslationX(d);
                     v.animate().alpha(1).translationX(0).setStartDelay(i * 50L).setDuration(260).start();
                 }
             }
-            meta.animate().alpha(1).setDuration(260).start();
         }, 190);
     }
 
@@ -434,22 +435,30 @@ final class ServicePanel extends FrameLayout {
             Tmdb.Title t = at < r.size() ? r.get(at) : null;
             cards[i].setVisibility(t == null && rows.get(tab) != null ? INVISIBLE : VISIBLE);
             names[i].setText(t == null ? "" : t.name);
+            metas[i].setText(t == null ? "" : i == 0 ? details(t) : shortDetails(t));
             String url = t == null ? null : i == 0 ? WIDE_IMAGE + t.backdrop
                     : t.poster != null && !t.poster.isEmpty() ? TALL_IMAGE + t.poster : WIDE_IMAGE + t.backdrop;
             Images.load(images[i], url);
         }
-        Tmdb.Title first = page * 3 < r.size() ? r.get(page * 3) : null;
-        meta.setText(first == null ? "" : details(first));
     }
 
-    /** "Series · Comedy · 2026 · ★ 7.3", like the home screen's line under the wide card. */
+    /** "★ 7.3 · Series · Comedy · 2026", like the home screen's line under each card (rating first: never cut off). */
     private String details(Tmdb.Title t) {
         List<String> parts = new ArrayList<>();
+        if (t.vote > 0) parts.add(String.format(Locale.US, "★ %.1f", t.vote));
         parts.add(t.kind.equals("tv") ? Ui.tr("Série", "Series") : Ui.tr("Filme", "Movie"));
         String g = t.genres.length > 0 ? genreNames.get(String.valueOf(t.genres[0])) : null;
         if (g != null) parts.add(g);
         if (!t.year.isEmpty()) parts.add(t.year);
+        return TextUtils.join(" · ", parts);
+    }
+
+    /** The tall cards' line: "★ 7.1 · Drama". */
+    private String shortDetails(Tmdb.Title t) {
+        List<String> parts = new ArrayList<>();
         if (t.vote > 0) parts.add(String.format(Locale.US, "★ %.1f", t.vote));
+        String g = t.genres.length > 0 ? genreNames.get(String.valueOf(t.genres[0])) : null;
+        if (g != null) parts.add(g);
         return TextUtils.join(" · ", parts);
     }
 

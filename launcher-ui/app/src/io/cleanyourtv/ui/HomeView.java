@@ -2983,6 +2983,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
 
+    /** The tall cards' line: the rating and the genre ("★ 6.8 · Reality"), without "Series", length or service. */
+    private static String shortMeta(String meta) {
+        List<String> keep = new ArrayList<>();
+        for (String part : meta.split(" · ")) {
+            if (part.equals(Ui.tr("Série", "Series"))) continue;
+            keep.add(part);
+            if (keep.size() == 2) break;
+        }
+        return TextUtils.join(" · ", keep);
+    }
+
     private boolean picksOn() {
         return Recs.hasKey(getContext());
     }
@@ -3075,9 +3086,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         fitPaint.set(lCardTitle);
         String title = TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString();
         c.drawText(title, Ui.he ? base.right - lCardTitle.measureText(title) : base.left, base.bottom + 46 * k, lCardTitle);
-        if (i == 0 && p.meta != null && !p.meta.isEmpty()) {
+        if (p.meta != null && !p.meta.isEmpty()) {   // every card: rating first, then genre, length and service
             fitPaint.set(lCardMeta);
-            String meta = TextUtils.ellipsize(p.meta, fitPaint, bw, TextUtils.TruncateAt.END).toString();
+            String meta = TextUtils.ellipsize(i == 0 ? p.meta : shortMeta(p.meta), fitPaint, bw, TextUtils.TruncateAt.END).toString();
             c.drawText(meta, Ui.he ? base.right - lCardMeta.measureText(meta) : base.left, base.bottom + 80 * k, lCardMeta);
         }
     }

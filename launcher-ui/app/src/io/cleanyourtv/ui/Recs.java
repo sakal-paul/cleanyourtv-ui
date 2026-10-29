@@ -576,6 +576,8 @@ final class Recs {
             }
         }
         if (p.app != null) parts.add(SERVICE_NAME.containsKey(p.app) ? SERVICE_NAME.get(p.app) : p.app);
+        double vote = o.optDouble("vote_average", 0);
+        if (vote > 0) parts.add(0, String.format(Locale.US, "★ %.1f", vote));   // always shown: first, before the cut-off
         p.meta = String.join(" · ", parts);
         p.detailed = true;
     }
@@ -829,7 +831,8 @@ final class Recs {
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
-            p.detailed = o.optBoolean("detailed");
+            // Saved before the rating led the details line: fetched again (the list and its pictures stay meanwhile).
+            p.detailed = o.optBoolean("detailed") && p.meta.startsWith("★");
             out.add(p);
         }
         return out;
