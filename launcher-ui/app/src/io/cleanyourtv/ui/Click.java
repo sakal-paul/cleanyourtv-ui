@@ -17,6 +17,8 @@ import java.nio.ByteOrder;
  */
 final class Click {
     private static final int RATE = 48_000;
+    /** 30% of the original level: the clicks turned down by 70%. */
+    private static final float LEVEL = 0.3f;
     private SoundPool pool;
     private int move, open;
 
@@ -34,11 +36,11 @@ final class Click {
     }
 
     void move() {
-        if (pool != null) pool.play(move, 0.14f, 0.14f, 1, 0, 1f);
+        if (pool != null) pool.play(move, 0.14f * LEVEL, 0.14f * LEVEL, 1, 0, 1f);
     }
 
     void open() {
-        if (pool != null) pool.play(open, 0.18f, 0.18f, 1, 0, 1f);
+        if (pool != null) pool.play(open, 0.18f * LEVEL, 0.18f * LEVEL, 1, 0, 1f);
     }
 
     void release() {
