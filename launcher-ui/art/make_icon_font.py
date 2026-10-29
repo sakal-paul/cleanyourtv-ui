@@ -8,7 +8,7 @@ M = {"apps":"apps","bedtime":"bedtime","bell":"notifications","bitcoin":"currenc
  "chevron_down":"keyboard_arrow_down","chevron_right":"chevron_right","clear_night":"clear_night","cloud":"cloud",
  "foggy":"foggy","gamepad":"stadia_controller","hdmi":"settings_input_hdmi","home":"home","live_tv":"live_tv",
  "partly_cloudy_day":"partly_cloudy_day","partly_cloudy_night":"partly_cloudy_night","play":"play_arrow","rainy":"rainy",
- "search":"search","settings":"settings","snowflake":"ac_unit","sparkles":"auto_awesome","speaker":"speaker","speed":"speed",
+ "search":"search","settings":"settings","snowflake":"ac_unit","sparkles":"auto_awesome","speaker":"speaker","speed":"speed","dashboard":"dashboard",
  "sunny":"sunny","sunrise":"wb_twilight","sunset":"wb_twilight","sync":"sync","thunderstorm":"thunderstorm","tune":"tune",
  "tv":"tv","tv_settings":"tv_options_input_settings","wifi":"wifi"}
 OUTLINED = {"tv"}

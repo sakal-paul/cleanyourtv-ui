@@ -1,6 +1,9 @@
 package io.cleanyourtv.ui;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.graphics.Canvas;
+import android.graphics.RectF;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -97,6 +100,15 @@ final class ServicePanel extends FrameLayout {
     private final ImageView[] images = new ImageView[3];
     private final TextView[] names = new TextView[3];
     private final TextView[] metas = new TextView[3];
+    private final InfoView[] infos = new InfoView[3];
+    /** The large card (0 to 2): a tall one the focus rests on for GROW_MS grows into it, the others turn tall. */
+    private int wideSlot;
+    private static final long GROW_MS = 5000;
+    private final float[] lefts = new float[3], widths = new float[3];
+    private ValueAnimator growing;
+    private final Runnable grow = () -> {
+        if (active && section == CARDS && cardIndex != wideSlot && cardIndex < pageSize()) setWide(cardIndex, true);
+    };
 
     ServicePanel(Activity a, Host host) {
         super(a);
@@ -130,9 +142,7 @@ final class ServicePanel extends FrameLayout {
         status.setGravity(Gravity.CENTER_VERTICAL);
         put(status, x + 20, TABBAR_TOP, -2, TABBAR_H);
 
-        float wide = (CONTENT_R - MARGIN) - 2 * TALL_W - 2 * CARD_GAP;
-        float[] lefts = {MARGIN, MARGIN + wide + CARD_GAP, MARGIN + wide + CARD_GAP + TALL_W + CARD_GAP};
-        float[] widths = {wide, TALL_W, TALL_W};
+        slots(0, lefts, widths);
         for (int i = 0; i < 3; i++) {
             FrameLayout c = new FrameLayout(a);
             c.setBackground(TvUi.round(0xFFDADADF, px(18)));
@@ -140,6 +150,10 @@ final class ServicePanel extends FrameLayout {
             ImageView img = new ImageView(a);
             img.setScaleType(ImageView.ScaleType.CENTER_CROP);
             c.addView(img, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            InfoView info = new InfoView();
+            info.setAlpha(0);
+            c.addView(info, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            infos[i] = info;
             TvUi.focusable(c, k, px(18));
             cards[i] = c;
             images[i] = img;
@@ -159,6 +173,92 @@ final class ServicePanel extends FrameLayout {
             put(m, lefts[i], CARDS_TOP + CARD_H + 80 - 25 * 0.94f, widths[i], -2);
         }
         setNight(0);
+    }
+
+    /** The cards' lefts and widths (1080p) with card `wide` the large one. */
+    private static void slots(int wide, float[] l, float[] w) {
+        float big = (CONTENT_R - MARGIN) - 2 * TALL_W - 2 * CARD_GAP, x = MARGIN;
+        for (int i = 0; i < 3; i++) {
+            l[i] = x;
+            w[i] = i == wide ? big : TALL_W;
+            x += w[i] + CARD_GAP;
+        }
+    }
+
+    /** Moves each card and the lines under it to these lefts and widths (1080p). */
+    private void place(float[] l, float[] w) {
+        for (int i = 0; i < 3; i++) {
+            for (View v : new View[] {cards[i], names[i], metas[i]}) {
+                LayoutParams lp = (LayoutParams) v.getLayoutParams();
+                lp.leftMargin = px(l[i]);
+                lp.width = px(w[i]);
+                v.setLayoutParams(lp);
+            }
+        }
+    }
+
+    /** Card `slot` becomes the large one: gliding there (animate), or at once for a new page. */
+    private void setWide(int slot, boolean animate) {
+        if (growing != null) growing.cancel();
+        main.removeCallbacks(grow);
+        float[] fromL = lefts.clone(), fromW = widths.clone();
+        wideSlot = slot;
+        slots(slot, lefts, widths);
+        showPage();   // the large card's picture is the wide one, the tall cards' the poster
+        if (!animate) {
+            place(lefts, widths);
+            return;
+        }
+        float[] l = new float[3], w = new float[3];
+        growing = ValueAnimator.ofFloat(0, 1).setDuration(320);
+        growing.setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f));
+        growing.addUpdateListener(a -> {
+            float t = (float) a.getAnimatedValue();
+            for (int i = 0; i < 3; i++) {
+                l[i] = fromL[i] + (lefts[i] - fromL[i]) * t;
+                w[i] = fromW[i] + (widths[i] - fromW[i]) * t;
+            }
+            place(l, w);
+        });
+        growing.start();
+    }
+
+    /** A new page, tab or service: the first card large again. */
+    private void resetWide() {
+        if (wideSlot != 0) setWide(0, false);
+    }
+
+    /** The details over the focused card only, while the panel has the remote. */
+    private void showInfo() {
+        List<Tmdb.Title> r = currentRow();
+        for (int i = 0; i < 3; i++) {
+            int at = page * 3 + i;
+            Tmdb.Title t = at < r.size() ? r.get(at) : null;
+            infos[i].title = t;
+            boolean on = t != null && active && section == CARDS && i == cardIndex;
+            infos[i].animate().cancel();
+            infos[i].animate().alpha(on ? 1 : 0).setDuration(on ? 260 : 140).start();
+            infos[i].invalidate();
+        }
+    }
+
+    /** Draws CardInfo over a card's picture (fetching it the first time). */
+    private final class InfoView extends View {
+        Tmdb.Title title;
+        private final RectF box = new RectF();
+
+        InfoView() {
+            super(activity);
+        }
+
+        @Override protected void onDraw(Canvas c) {
+            // Drawn even while faded out: fading in only changes the view's alpha and doesn't draw it again.
+            if (title == null) return;
+            CardInfo info = CardInfo.get(title.kind, title.id, this::invalidate);
+            if (info == null) return;
+            box.set(0, 0, getWidth(), getHeight());
+            info.draw(c, box, px(18), title.name, 1, k);
+        }
     }
 
     /** Places a child at 1080p coordinates (-2: its own size). */
@@ -223,6 +323,8 @@ final class ServicePanel extends FrameLayout {
 
     private void exit() {
         active = false;
+        main.removeCallbacks(grow);
+        if (wideSlot != 0) setWide(0, true);
         View f = findFocus();
         if (f != null) f.clearFocus();
         setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
@@ -280,6 +382,7 @@ final class ServicePanel extends FrameLayout {
         tab = 0;
         page = 0;
         cardIndex = 0;
+        resetWide();
         for (int i = 0; i < 3; i++) rows.set(i, null);
         titleView.setText(service[0]);
         status.setText(Ui.tr("Carregando…", "Loading…"));
@@ -353,6 +456,7 @@ final class ServicePanel extends FrameLayout {
         tab = t;
         page = 0;
         cardIndex = 0;
+        resetWide();
         markTabs();
         tabs[t].requestFocus();
         showPage();
@@ -386,6 +490,7 @@ final class ServicePanel extends FrameLayout {
                     rows.set(t, got);
                     if (tab == t) {
                         page = 0;
+                        resetWide();
                         if (!(active && section == CARDS)) slide(); else showPage();
                     }
                 });
@@ -405,6 +510,7 @@ final class ServicePanel extends FrameLayout {
             }
         }
         main.postDelayed(() -> {
+            resetWide();
             showPage();
             for (int i = 0; i < 3; i++) {
                 View[] vs = {cards[i], names[i], metas[i]};
@@ -418,6 +524,7 @@ final class ServicePanel extends FrameLayout {
 
     private void turnPage(int dir, int focus) {
         page += dir;
+        resetWide();
         showPage();
         focusCard(Math.min(focus, pageSize() - 1));
     }
@@ -435,11 +542,13 @@ final class ServicePanel extends FrameLayout {
             Tmdb.Title t = at < r.size() ? r.get(at) : null;
             cards[i].setVisibility(t == null && rows.get(tab) != null ? INVISIBLE : VISIBLE);
             names[i].setText(t == null ? "" : t.name);
-            metas[i].setText(t == null ? "" : i == 0 ? details(t) : shortDetails(t));
-            String url = t == null ? null : i == 0 ? WIDE_IMAGE + t.backdrop
+            metas[i].setText(t == null ? "" : i == wideSlot ? details(t) : shortDetails(t));
+            if (t != null) CardInfo.get(t.kind, t.id, null);   // ready by the time the card has the focus
+            String url = t == null ? null : i == wideSlot ? WIDE_IMAGE + t.backdrop
                     : t.poster != null && !t.poster.isEmpty() ? TALL_IMAGE + t.poster : WIDE_IMAGE + t.backdrop;
             Images.load(images[i], url);
         }
+        showInfo();
     }
 
     /** "★ 7.3 · Series · Comedy · 2026", like the home screen's line under each card (rating first: never cut off). */
@@ -469,6 +578,8 @@ final class ServicePanel extends FrameLayout {
         section = CARDS;
         cards[cardIndex].requestFocus();
         markTabs();
+        main.removeCallbacks(grow);
+        if (cardIndex != wideSlot) main.postDelayed(grow, GROW_MS);
     }
 
     private void markTabs() {
@@ -481,6 +592,7 @@ final class ServicePanel extends FrameLayout {
             tabs[i].setBackground(selected && focused ? TvUi.round(0xFFFFFFFF, px(TABBAR_H / 2)) : null);
             tabs[i].setElevation(selected && focused ? px(10) : 0);
         }
+        if (infos[0] != null) showInfo();
     }
 
     // MARK: - Watching

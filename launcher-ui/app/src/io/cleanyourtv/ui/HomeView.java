@@ -156,6 +156,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] topRects = new RectF[TOP_N];
     private final Spring[] cardFocus = new Spring[3];
     private final RectF[] cardRects = new RectF[3];
+    /** How wide each card is (1: the large one). A tall card the focus rests on for GROW_MS grows into the large one. */
+    private final Spring[] cardWide = new Spring[3];
+    private static final long GROW_MS = 5000;
+    private int wideSlot, growFor = -1;
+    private float lCardsTop, lCardH, lCardGap, lCardsLeft, lTallW, lWideW;
+    private final Runnable growCard = this::growFocusedCard;
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
@@ -405,6 +411,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = 0; i < 3; i++) {
             cardFocus[i] = new Spring(0.32f, 0.78f, 0);
+            cardWide[i] = new Spring(0.4f, 0.9f, i == 0 ? 1 : 0);
             cardRects[i] = new RectF();
         }
         makeLightButtons();
@@ -500,7 +507,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lightButtons.add(HomeApps.action(HomeApps.INPUTS, "inputs", Ui.tr("Entradas HDMI", "HDMI Inputs"), "hdmi"));
         lightButtons.add(HomeApps.action(HomeApps.THEME, "theme", Ui.tr("Modo claro", "Light mode"), "sunny"));
         lightButtons.add(HomeApps.action(HomeApps.SYSTEM_INFO, "system-info",
-                Ui.tr("Armazenamento, memória e internet", "Storage, memory and internet speed"), "speed"));
+                Ui.tr("Armazenamento, memória e internet", "Storage, memory and internet speed"), "dashboard"));
         lightButtons.add(HomeApps.action(HomeApps.SETTINGS, "settings", Ui.tr("Configurações", "Settings"), "settings"));
     }
 
@@ -672,7 +679,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
         boolean heroMoving = heroFocus.step(dt) | cardSlide.step(dt);
-        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
+        boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt) | step(cardWide, dt);
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
         boolean drawerItemsMoving = step(drawerFocus, dt);
@@ -1822,6 +1829,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (snap) heroFocus.snap(heroFocus.target);
         boolean topChanged = aim(topFocus, !sheetOpen && zone == Z_TOP ? topIndex : -1, snap);
         heroChanged |= aim(cardFocus, !sheetOpen && zone == Z_CARDS ? cardIndex : -1, snap) | topChanged;
+        armGrow(snap);
         statusChanged |= topChanged;
         tilesDirty |= snap || tilesChanged;
         statusDirty |= snap || statusChanged;
@@ -2793,17 +2801,72 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             float axis = (MARGIN + CONTENT_R) * k;
             for (int i = 0; i < TOP_N; i++) topRects[i].set(axis - topRects[i].right, topRects[i].top, axis - topRects[i].left, topRects[i].bottom);
         }
-        float top = L_CARDS_TOP * k, ch = L_CARD_H * k, g = L_CARD_GAP * k, left = MARGIN * k, tall = L_TALL_W * k;
-        float wide = (CONTENT_R - MARGIN) * k - 2 * tall - 2 * g;
-        cardRects[0].set(left, top, left + wide, top + ch);
-        cardRects[1].set(cardRects[0].right + g, top, cardRects[0].right + g + tall, top + ch);
-        cardRects[2].set(cardRects[1].right + g, top, cardRects[1].right + g + tall, top + ch);
+        lCardsTop = L_CARDS_TOP * k;
+        lCardH = L_CARD_H * k;
+        lCardGap = L_CARD_GAP * k;
+        lCardsLeft = MARGIN * k;
+        lTallW = L_TALL_W * k;
+        lWideW = (CONTENT_R - MARGIN) * k - 2 * lTallW - 2 * lCardGap;
+        placeCards();
+        heroDirty = statusDirty = true;
+    }
+
+    /**
+     * The three cards left to right, each between tall and large by its cardWide spring (the row keeps its length
+     * while one grows and another shrinks).
+     */
+    private void placeCards() {
+        float sum = 0;
+        for (Spring w : cardWide) sum += Math.max(0, w.value);
+        float x = lCardsLeft;
+        for (int i = 0; i < 3; i++) {
+            float part = sum > 0.001f ? Math.max(0, cardWide[i].value) / sum : (i == 0 ? 1 : 0);
+            float w = lTallW + (lWideW - lTallW) * part;
+            cardRects[i].set(x, lCardsTop, x + w, lCardsTop + lCardH);
+            x += w + lCardGap;
+        }
         // Hebrew: the large card on the right, the two tall ones following it leftward (same mirror as the top row).
         if (Ui.he) {
             float axis = (MARGIN + CONTENT_R) * k;
             for (RectF r : cardRects) r.set(axis - r.right, r.top, axis - r.left, r.bottom);
         }
-        heroDirty = statusDirty = true;
+    }
+
+    private boolean isWide(RectF r) {
+        return r.width() > lTallW * 1.6f;
+    }
+
+    /** Makes card `slot` the large one (the others tall). */
+    private void setWide(int slot, boolean snap) {
+        wideSlot = slot;
+        for (int i = 0; i < 3; i++) {
+            cardWide[i].target = i == slot ? 1 : 0;
+            if (snap) cardWide[i].snap(cardWide[i].target);
+        }
+        if (snap) placeCards();
+        heroDirty = true;
+        wake();
+    }
+
+    private void growFocusedCard() {
+        if (zone == Z_CARDS && !sheetOpen && cardIndex != wideSlot && cardIndex < cards.size()) setWide(cardIndex, false);
+    }
+
+    /** Starts the 5 s wait when the focus comes to a tall card; back to the first card large when it leaves the row. */
+    private void armGrow(boolean snap) {
+        int want = !sheetOpen && zone == Z_CARDS ? cardIndex : -1;
+        if (want != growFor) {
+            growFor = want;
+            removeCallbacks(growCard);
+            if (want >= 0 && want != wideSlot) postDelayed(growCard, GROW_MS);
+        }
+        if (want < 0 && wideSlot != 0) setWide(0, snap);
+    }
+
+    /** A title's details arrived: the focused card shows them. */
+    private void infoReady() {
+        heroDirty = true;
+        wake();
     }
 
     /** The three cards of the current page and the background from the first one; the pages around it get ready. */
@@ -2821,6 +2884,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
+            setWide(0, true);   // a new page starts with its first card large
+            growFor = -2;
+            armGrow(true);
+            for (Recs.Pick p : list) CardInfo.get(p.kind, p.id, this::infoReady);
             if (zone == Z_CARDS && list.isEmpty()) {
                 zone = Z_SHELF;
                 retarget(false);
@@ -2977,6 +3044,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int layer = slide > 0.002f ? c.saveLayerAlpha(0, L_CARDS_TOP * k - 40 * k, w, (L_CARDS_TOP + L_CARD_H + 100) * k,
                 Math.round(255 * Ui.clamp(1 - slide))) : -1;
         if (layer >= 0) c.translate(slide * 140 * k, 0);
+        placeCards();
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
         if (layer >= 0) c.restoreToCount(layer);
@@ -3046,7 +3114,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         Backdrop b = p == null ? null : recs.backdrop(p);
-        Bitmap img = b == null ? null : (i == 0 ? b.wide : b.tall);
+        Bitmap img = b == null ? null : (isWide(base) ? b.wide : b.tall);
         if (img != null) {
             roundImage(c, img, cell, r);
         } else {
@@ -3083,12 +3151,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.restore();
         }
         if (p == null) return;
+        // Focused: genre and rating, title, year · age rating · length, the story and the cast, over the picture.
+        CardInfo info = f > 0.01f ? CardInfo.get(p.kind, p.id, this::infoReady) : null;
+        if (info != null) info.draw(c, cell, r, p.title, f, k * s);
         fitPaint.set(lCardTitle);
         String title = TextUtils.ellipsize(p.title, fitPaint, bw, TextUtils.TruncateAt.END).toString();
         c.drawText(title, Ui.he ? base.right - lCardTitle.measureText(title) : base.left, base.bottom + 46 * k, lCardTitle);
         if (p.meta != null && !p.meta.isEmpty()) {   // every card: rating first, then genre, length and service
             fitPaint.set(lCardMeta);
-            String meta = TextUtils.ellipsize(i == 0 ? p.meta : shortMeta(p.meta), fitPaint, bw, TextUtils.TruncateAt.END).toString();
+            String meta = TextUtils.ellipsize(isWide(base) ? p.meta : shortMeta(p.meta), fitPaint, bw, TextUtils.TruncateAt.END).toString();
             c.drawText(meta, Ui.he ? base.right - lCardMeta.measureText(meta) : base.left, base.bottom + 80 * k, lCardMeta);
         }
     }

@@ -61,6 +61,7 @@ final class Symbols {
         GLYPHS.put("sparkles", new int[] {0xe65f, 1});
         GLYPHS.put("speaker", new int[] {0xe32d, 1});
         GLYPHS.put("speed", new int[] {0xe9e4, 1});
+        GLYPHS.put("dashboard", new int[] {0xe871, 1});
         GLYPHS.put("sunny", new int[] {0xe81a, 1});
         GLYPHS.put("sunrise", new int[] {0xe1c6, 1});
         GLYPHS.put("sunset", new int[] {0xe1c6, 1});

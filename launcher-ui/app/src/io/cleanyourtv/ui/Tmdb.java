@@ -73,18 +73,15 @@ final class Tmdb {
     }
 
     /**
-     * How long an answer stays good on disk: lists of what's trending or new for hours, a title's page for half a
-     * day, what hardly changes (pictures, people, seasons, collections, the region's services) for a week.
+     * How long an answer stays good on disk: every list and every title's page (rating, overview, cast) for half an
+     * hour, so the home screen is new every 30 minutes; what hardly changes (pictures, people, seasons, collections,
+     * the region's services) for a week.
      */
     private static long ttl(String path) {
         if (path.contains("session_id")) return 0;
-        if (path.startsWith("/search/")) return 3600_000L;
-        if (path.startsWith("/trending/") || path.startsWith("/discover/") || path.contains("/now_playing")
-                || path.contains("/upcoming") || path.contains("/airing_today") || path.contains("/on_the_air")
-                || path.contains("/recommendations")) return 30 * 60_000L;   // new picks every half hour
         if (path.contains("/images") || path.startsWith("/person/") || path.startsWith("/collection/")
-                || path.contains("/season/") || path.startsWith("/watch/providers") || path.contains("/top_rated")) return 7 * 24 * 3600_000L;
-        return 12 * 3600_000L;
+                || path.contains("/season/") || path.startsWith("/watch/providers")) return 7 * 24 * 3600_000L;
+        return 30 * 60_000L;
     }
 
     /**
