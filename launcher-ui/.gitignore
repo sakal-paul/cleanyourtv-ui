@@ -14,3 +14,5 @@ __pycache__/
 .DS_Store
 my-config.json
 my-*.png
+# Clash Display may not be redistributed (ITF Free Font License): the build copies your own copy in
+app/assets/fonts/ClashDisplay-Variable.ttf

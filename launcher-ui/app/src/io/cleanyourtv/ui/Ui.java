@@ -18,9 +18,10 @@ import java.util.Locale;
 import java.util.function.Supplier;
 
 /**
- * Fonts and text for the home screen, the screensaver and the settings. Font: Inter (variable, assets/fonts, SIL OFL),
- * with the "display" optical size for large text and the "text" size for small text; without it, the system font at a
- * similar weight.
+ * Fonts and text for the home screen, the screensaver and the settings. Font: Clash Display (variable, Fontshare, ITF
+ * Free Font License) when assets/fonts holds it; it is not in the repository, so the build copies it in. Otherwise Inter
+ * (variable, assets/fonts, SIL OFL), with the "display" optical size for large text and the "text" size for small text;
+ * without either, the system font at a similar weight.
  */
 final class Ui {
     private Ui() {}
@@ -55,8 +56,16 @@ final class Ui {
         semibold = font(a, 14, 600);
     }
 
-    /** Inter at an optical size (14 = text, 32 = display) and weight; the system font if the file is missing. */
+    /** Clash Display at a weight (200 to 700); else Inter at an optical size (14 = text, 32 = display) and weight; else the system font. */
     private static Typeface font(AssetManager a, int opticalSize, int weight) {
+        if (has(a, CLASH)) {
+            try {
+                Typeface t = new Typeface.Builder(a, CLASH)
+                        .setFontVariationSettings("'wght' " + Math.max(200, Math.min(700, weight))).build();
+                if (t != null) return t;
+            } catch (RuntimeException ignored) {
+            }
+        }
         if (has(a, FONT)) {
             try {
                 Typeface t = new Typeface.Builder(a, FONT)
@@ -68,7 +77,7 @@ final class Ui {
         return Typeface.create(Typeface.DEFAULT, weight, false);
     }
 
-    private static final String FONT = "fonts/InterVariable.ttf";
+    private static final String FONT = "fonts/InterVariable.ttf", CLASH = "fonts/ClashDisplay-Variable.ttf";
 
     /** "pt", "es", "de", "ru", "fr", "tr", "he" or "en": the one picked (TV settings or config.properties), or with "auto" the TV's own, else English. */
     private static String language() {
