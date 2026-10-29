@@ -2322,7 +2322,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             r = drawerRects[drawerIndex];
         } else if (zone == Z_TOP) {
             if (topIndex < NT) {
-                if (topIndex >= 3 && !Trakt.signedIn(getContext())) {   // a Trakt tab before connecting: connect
+                // OK on a Trakt tab: connect, or once connected the account (who, and Disconnect). Focusing a tab already
+                // selects it, so OK has nothing else to do there.
+                if (topIndex >= 3) {
                     click.open();
                     activity.startActivity(new android.content.Intent(activity, TraktLoginActivity.class));
                     return;
