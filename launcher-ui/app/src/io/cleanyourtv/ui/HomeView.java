@@ -158,11 +158,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private final RectF[] cardRects = new RectF[3];
     /** How wide each card is (1: the large one). A tall card the focus rests on for GROW_MS grows into the large one. */
     private final Spring[] cardWide = new Spring[3];
-    private static final long GROW_MS = 5000;
+    private static final long GROW_MS = 1000;
     private int wideSlot, growFor = -1;
     private float lCardsTop, lCardH, lCardGap, lCardsLeft, lTallW, lWideW;
     private final Runnable growCard = this::growFocusedCard;
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
+    private Paint lTitleAmPm;
+    private String titleTime = "", titleAmPm = "";
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
 
@@ -605,13 +607,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clockPaint = Ui.numbers(Ui.thin, 176 * k, 0xFFFFFFFF);
         clockPaint.setLetterSpacing(-0.01f);
         for (Paint p : new Paint[] {labelPaint, titlePaint, metaPaint, clockPaint}) p.setShadowLayer(22 * k, 0, 2 * k, 0x59000000);
-        lTitle = Ui.text(Ui.displaySemibold, 76 * k, L_INK);
+        lTitle = Ui.numbers(Ui.displaySemibold, 76 * k, L_INK);
         lTitle.setLetterSpacing(0.004f);
+        lTitleAmPm = Ui.text(Ui.displayMedium, 34 * k, L_INK);
         lTab = Ui.text(Ui.medium, 30 * k, L_DIM);
         lTabOn = Ui.text(Ui.semibold, 30 * k, L_INK);
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
         lCardTitle.setLetterSpacing(0.012f);
-        lCardMeta = Ui.text(Ui.medium, 25 * k, L_DIM);
+        lCardMeta = Ui.text(Ui.poppins, 24 * k, L_DIM);
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
@@ -775,6 +778,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         clockPrefs = Prefs.version;
         clockText = Ui.clock(now);
         dateText = Ui.date(now);
+        String[] t = new java.text.SimpleDateFormat("h:mm|a", java.util.Locale.US).format(new java.util.Date(now)).split("\\|");
+        titleTime = t[0];
+        titleAmPm = t[1];
+        heroDirty = true;
         return true;
     }
 
@@ -2852,7 +2859,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (zone == Z_CARDS && !sheetOpen && cardIndex != wideSlot && cardIndex < cards.size()) setWide(cardIndex, false);
     }
 
-    /** Starts the 5 s wait when the focus comes to a tall card; back to the first card large when it leaves the row. */
+    /** Starts the 1 s wait when the focus comes to a tall card; back to the first card large when it leaves the row. */
     private void armGrow(boolean snap) {
         int want = !sheetOpen && zone == Z_CARDS ? cardIndex : -1;
         if (want != growFor) {
@@ -3010,9 +3017,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }
-        String hello = Ui.tr("Para você", "For You");
-        float helloX = Ui.he ? CONTENT_R * k - lTitle.measureText(hello) : MARGIN * k - Ui.leftBearing(lTitle, hello);
+        // The time where "For You" was: 12-hour, "3:07" with a smaller "PM" beside it.
+        String hello = titleTime, ampm = titleAmPm;
+        lTitleAmPm.setColor(lTitle.getColor());
+        float helloW = lTitle.measureText(hello), gap = 12 * k, ampmW = lTitleAmPm.measureText(ampm);
+        float helloX = Ui.he ? CONTENT_R * k - helloW - gap - ampmW : MARGIN * k - Ui.leftBearing(lTitle, hello);
         c.drawText(hello, helloX, L_TITLE_BASE * k, lTitle);
+        c.drawText(ampm, helloX + helloW + gap, L_TITLE_BASE * k, lTitleAmPm);
         // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
         // the white pill with a shadow and grows a little (the tvOS focus).
         float focus = Ui.clamp(topFocus[tab].value);
@@ -3142,12 +3153,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             sheen.setAlpha(alpha);
             c.drawRoundRect(tmp, r0, r0, sheen);
             sheen.setAlpha(255);
-            rim.setShader(lightRims[i]);
-            rim.setAlpha(alpha);
-            rim.setStrokeWidth(2.5f * k / s);
-            c.drawRoundRect(tmp, r0, r0, rim);
-            rim.setStrokeWidth(2.5f * k);
-            rim.setAlpha(255);
             c.restore();
         }
         if (p == null) return;

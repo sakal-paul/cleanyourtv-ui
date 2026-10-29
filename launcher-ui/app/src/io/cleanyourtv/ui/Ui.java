@@ -39,6 +39,8 @@ final class Ui {
             ru = "ru".equals(language), fr = "fr".equals(language), tur = "tr".equals(language),
             he = "he".equals(language);
     static Typeface thin, light, displayMedium, displaySemibold, regular, medium, semibold;
+    /** Poppins (Google Fonts, SIL OFL): the cards' stories and detail lines ("★ 7.3 · Comedy"). */
+    static Typeface poppins, poppinsMedium;
     private static boolean loaded;
     private static final Rect BOUNDS = new Rect();
     private static final RectF OVAL = new RectF();
@@ -54,6 +56,18 @@ final class Ui {
         regular = font(a, 14, 400);
         medium = font(a, 14, 500);
         semibold = font(a, 14, 600);
+        poppins = asset(a, "fonts/Poppins-Regular.ttf", regular);
+        poppinsMedium = asset(a, "fonts/Poppins-Medium.ttf", medium);
+    }
+
+    /** A static font from assets, or `fallback` without the file. */
+    private static Typeface asset(AssetManager a, String path, Typeface fallback) {
+        if (!has(a, path)) return fallback;
+        try {
+            return Typeface.createFromAsset(a, path);
+        } catch (RuntimeException e) {
+            return fallback;
+        }
     }
 
     /** Clash Display at a weight (200 to 700); else Inter at an optical size (14 = text, 32 = display) and weight; else the system font. */

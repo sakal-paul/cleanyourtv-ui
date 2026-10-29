@@ -40,7 +40,7 @@ final class TvUi {
     static final int ROW_MAX = 10;
     static final int POSTER_W = 210, POSTER_H = 315, POSTER_GAP = 26;
     /** Like the home screen's cards: they grow this much when focused. */
-    private static final float GROW = 0.08f;
+    private static final float GROW = 0.05f;   // as the home screen's cards: the gaps between cards stay
 
     static float k(Activity a) {
         return a.getResources().getDisplayMetrics().widthPixels / 1920f;
@@ -67,6 +67,9 @@ final class TvUi {
      * thin light rim; at rest a faint veil and hairline. The caption brightens and, when too long, scrolls like a
      * bus sign.
      */
+    /** Out quickly, then settling (Material's emphasized easing). */
+    static final android.view.animation.Interpolator EASE = new android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f);
+
     static void focusable(View v, float k, float radius) {
         focusable(v, k, radius, null);
     }
@@ -79,7 +82,8 @@ final class TvUi {
         v.setForeground(look);
         v.setOnFocusChangeListener((view, has) -> {
             float s = has ? 1 + GROW : 1f;
-            view.animate().scaleX(s).scaleY(s).translationZ(has ? 30 * k : 0).translationY(has ? -4 * k : 0).setDuration(180).start();
+            view.animate().scaleX(s).scaleY(s).translationZ(has ? 30 * k : 0).translationY(has ? -6 * k : 0).setDuration(240)
+                    .setInterpolator(EASE).start();
             look.animateTo(has ? 1 : 0);
             if (caption != null) {
                 caption.setTextColor(has ? INK : DIM);
@@ -108,7 +112,8 @@ final class TvUi {
         void animateTo(float target) {
             if (anim != null) anim.cancel();
             anim = ValueAnimator.ofFloat(f, target);
-            anim.setDuration(180);
+            anim.setDuration(240);
+            anim.setInterpolator(EASE);
             anim.addUpdateListener(a -> {
                 f = (float) a.getAnimatedValue();
                 invalidateSelf();
@@ -135,11 +140,7 @@ final class TvUi {
                 fill.setShader(null);
                 fill.setAlpha(255);
             }
-            float w = 1.5f * k;
-            r.inset(w / 2, w / 2);
-            line.setStrokeWidth(w);
-            line.setColor(f > 0.01f ? Ui.alpha(0xFFFFFFFF, 0.08f + 0.37f * f) : 0x14FFFFFF);
-            c.drawRoundRect(r, radius, radius, line);
+            // No rim: the focused card is told apart by its size, lift, shadow and sheen.
         }
 
         @Override public void setAlpha(int alpha) {}

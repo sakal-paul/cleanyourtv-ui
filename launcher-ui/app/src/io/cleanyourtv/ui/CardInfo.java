@@ -44,6 +44,7 @@ final class CardInfo {
 
     String genre = "", rating = "", year = "", cert = "", length = "", overview = "", cast = "";
     final Bitmap[] faces = new Bitmap[3];
+    private final BitmapShader[] faceShaders = new BitmapShader[3];
     private long at;
 
     // Text laid out once per width (drawn every frame while focused).
@@ -166,23 +167,51 @@ final class CardInfo {
      */
     void draw(Canvas c, RectF card, float corner, String title, float alpha, float k) {
         if (alpha <= 0.01f) return;
-        int layer = c.saveLayerAlpha(card, Math.round(255 * Math.min(1, alpha)));
+        float a = Math.min(1, alpha);
+        int layer = c.saveLayerAlpha(card, Math.round(255 * a));
         CLIP.reset();
         CLIP.addRoundRect(card, corner, corner, Path.Direction.CW);
         c.clipPath(CLIP);
-        if (card.width() > 600 * k) drawFull(c, card, title, k);
-        else drawShort(c, card, title, k);
+        // Drawn at the card's origin, so the washes are built once per card size, not on every frame.
+        c.translate(card.left, card.top);
+        LOCAL.set(0, 0, card.width(), card.height());
+        boolean full = card.width() > 600 * k;
+        wash(c, LOCAL, full);
+        // The words rise into place as they fade in (eased: fast, then settling).
+        float e = 1 - (1 - a) * (1 - a) * (1 - a);
+        c.translate(0, (1 - e) * 18 * k);
+        if (full) drawFull(c, LOCAL, title, k);
+        else drawShort(c, LOCAL, title, k);
         c.restoreToCount(layer);
     }
 
-    private void drawFull(Canvas c, RectF card, String title, float k) {
-        FILL.setShader(new LinearGradient(card.left, 0, card.left + card.width() * 0.75f, 0,
-                new int[] {0xF2000000, 0xB3000000, 0x00000000}, new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP));
-        c.drawRect(card, FILL);
-        FILL.setShader(new LinearGradient(0, card.bottom - card.height() * 0.4f, 0, card.bottom, 0x00000000, 0x99000000, Shader.TileMode.CLAMP));
-        c.drawRect(card, FILL);
-        FILL.setShader(null);
+    private static final RectF LOCAL = new RectF();
+    private static LinearGradient washSide, washFoot, washShort;
+    private static float washW, washH;
 
+    /** The dark wash under the words: from the left on the wide card, from the bottom on a tall one. */
+    private static void wash(Canvas c, RectF r, boolean full) {
+        if (washSide == null || washW != r.width() || washH != r.height()) {
+            washW = r.width();
+            washH = r.height();
+            washSide = new LinearGradient(0, 0, r.width() * 0.75f, 0, new int[] {0xF2000000, 0xB3000000, 0x00000000},
+                    new float[] {0, 0.55f, 1}, Shader.TileMode.CLAMP);
+            washFoot = new LinearGradient(0, r.height() * 0.6f, 0, r.height(), 0x00000000, 0x99000000, Shader.TileMode.CLAMP);
+            washShort = new LinearGradient(0, r.height() * 0.3f, 0, r.height(), new int[] {0x00000000, 0xB3000000, 0xF2000000},
+                    new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP);
+        }
+        if (full) {
+            FILL.setShader(washSide);
+            c.drawRect(r, FILL);
+            FILL.setShader(washFoot);
+        } else {
+            FILL.setShader(washShort);
+        }
+        c.drawRect(r, FILL);
+        FILL.setShader(null);
+    }
+
+    private void drawFull(Canvas c, RectF card, String title, float k) {
         float x = card.left + 40 * k, y = card.top + 34 * k, col = Math.min(card.width() * 0.58f, 640 * k);
         float chipBottom = chips(c, x, y, card.right - 40 * k, 22 * k, k);
 
@@ -202,11 +231,11 @@ final class CardInfo {
         if (!overview.isEmpty()) {
             if (storyLayout == null || storyW != col) {
                 TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-                p.setTypeface(Ui.regular);
-                p.setTextSize(24 * k);
+                p.setTypeface(Ui.poppins);
+                p.setTextSize(22 * k);
                 p.setColor(SOFT);
                 storyLayout = StaticLayout.Builder.obtain(overview, 0, overview.length(), p, Math.round(col))
-                        .setLineSpacing(0, 1.28f).setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
+                        .setLineSpacing(0, 1.18f).setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
                 storyW = col;
             }
             c.save();
@@ -220,15 +249,15 @@ final class CardInfo {
             int n = 0;
             for (Bitmap b : faces) if (b != null) n++;
             for (int i = 0; i < n; i++) {
-                face(c, faces[i], fx + d / 2, cy, d / 2, k);
+                face(c, i, fx + d / 2, cy, d / 2, k);
                 fx += d - 12 * k;
             }
             float nx = fx + 12 * k + 18 * k, w = Math.min(card.right - 40 * k - nx, 340 * k);
             if (w > 80 * k) {
                 if (castLayout == null || castW != w) {
                     TextPaint p = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-                    p.setTypeface(Ui.regular);
-                    p.setTextSize(19 * k);
+                    p.setTypeface(Ui.poppins);
+                    p.setTextSize(18 * k);
                     p.setColor(SOFT);
                     castLayout = StaticLayout.Builder.obtain(cast, 0, cast.length(), p, Math.round(w))
                             .setLineSpacing(0, 1.15f).setMaxLines(2).setEllipsize(TextUtils.TruncateAt.END).build();
@@ -242,12 +271,7 @@ final class CardInfo {
         }
     }
 
-    private void drawShort(Canvas c, RectF card, String title, float k) {
-        FILL.setShader(new LinearGradient(0, card.top + card.height() * 0.3f, 0, card.bottom,
-                new int[] {0x00000000, 0xB3000000, 0xF2000000}, new float[] {0, 0.45f, 1}, Shader.TileMode.CLAMP));
-        c.drawRect(card, FILL);
-        FILL.setShader(null);
-        float x = card.left + 22 * k, w = card.width() - 44 * k;
+    private void drawShort(Canvas c, RectF card, String title, float k) {        float x = card.left + 22 * k, w = card.width() - 44 * k;
         float lineMid = card.bottom - 30 * k;
         float lineTop = lineMid - 14 * k;
         if (titleLayout == null || titleW != w || !title.equals(titleText)) {
@@ -327,10 +351,12 @@ final class CardInfo {
         }
     }
 
-    private static void face(Canvas c, Bitmap b, float cx, float cy, float r, float k) {
+    private void face(Canvas c, int i, float cx, float cy, float r, float k) {
+        Bitmap b = faces[i];
         FILL.setColor(0xFF2C2C2E);
         c.drawCircle(cx, cy, r + 2.5f * k, FILL);
-        BitmapShader s = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        if (faceShaders[i] == null) faceShaders[i] = new BitmapShader(b, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        BitmapShader s = faceShaders[i];
         float scale = Math.max(2 * r / b.getWidth(), 2 * r / b.getHeight());
         M.setScale(scale, scale);
         M.postTranslate(cx - b.getWidth() * scale / 2, cy - r);   // faces sit at the top of the portrait

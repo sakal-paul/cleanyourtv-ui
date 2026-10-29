@@ -103,7 +103,7 @@ final class ServicePanel extends FrameLayout {
     private final InfoView[] infos = new InfoView[3];
     /** The large card (0 to 2): a tall one the focus rests on for GROW_MS grows into it, the others turn tall. */
     private int wideSlot;
-    private static final long GROW_MS = 5000;
+    private static final long GROW_MS = 1000;
     private final float[] lefts = new float[3], widths = new float[3];
     private ValueAnimator growing;
     private final Runnable grow = () -> {
@@ -166,7 +166,7 @@ final class ServicePanel extends FrameLayout {
             put(n, lefts[i], CARDS_TOP + CARD_H + 46 - 31 * 0.94f, widths[i], -2);
         }
         for (int i = 0; i < 3; i++) {
-            TextView m = TvUi.text(a, k, 25, Ui.medium, L_DIM);
+            TextView m = TvUi.text(a, k, 24, Ui.poppins, L_DIM);
             m.setSingleLine(true);
             m.setEllipsize(TextUtils.TruncateAt.END);
             metas[i] = m;
@@ -210,8 +210,8 @@ final class ServicePanel extends FrameLayout {
             return;
         }
         float[] l = new float[3], w = new float[3];
-        growing = ValueAnimator.ofFloat(0, 1).setDuration(320);
-        growing.setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f));
+        growing = ValueAnimator.ofFloat(0, 1).setDuration(460);
+        growing.setInterpolator(TvUi.EASE);
         growing.addUpdateListener(a -> {
             float t = (float) a.getAnimatedValue();
             for (int i = 0; i < 3; i++) {
@@ -237,7 +237,8 @@ final class ServicePanel extends FrameLayout {
             infos[i].title = t;
             boolean on = t != null && active && section == CARDS && i == cardIndex;
             infos[i].animate().cancel();
-            infos[i].animate().alpha(on ? 1 : 0).setDuration(on ? 260 : 140).start();
+            if (on && infos[i].getAlpha() < 0.05f) infos[i].setTranslationY(px(18));
+            infos[i].animate().alpha(on ? 1 : 0).translationY(0).setInterpolator(TvUi.EASE).setDuration(on ? 360 : 160).start();
             infos[i].invalidate();
         }
     }
