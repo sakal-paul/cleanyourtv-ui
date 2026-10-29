@@ -68,6 +68,27 @@ final class ServicePanel extends FrameLayout {
     private int section = CARDS, tab, page, cardIndex;
     private final List<List<Tmdb.Title>> rows = new ArrayList<>();
     private int generation;             // bumped per service: late answers for an old one are dropped
+    private final long[] rowsAt = new long[3];   // when each tab was fetched: refetched after half an hour
+    private long lastKeyAt;
+    private static final long REFRESH_MS = 30 * 60_000L, TURN_MS = 15_000L;
+
+    /** Every 15 s while shown: a stale tab is fetched again, and the cards move on to the next page when idle. */
+    private final Runnable autoTick = new Runnable() {
+        @Override public void run() {
+            if (pkg == null) return;
+            long now = System.currentTimeMillis();
+            if (rows.get(tab) != null && now - rowsAt[tab] > REFRESH_MS) {
+                refetch(tab);
+            } else if (!(active && section == CARDS) && android.os.SystemClock.uptimeMillis() - lastKeyAt > TURN_MS) {
+                int pages = (currentRow().size() + 2) / 3;
+                if (pages > 1) {
+                    page = (page + 1) % pages;
+                    slide();
+                }
+            }
+            main.postDelayed(this, TURN_MS);
+        }
+    };
     private float night;
 
     private final TextView titleView, status;
@@ -175,11 +196,15 @@ final class ServicePanel extends FrameLayout {
             if (pkg == null) return;
             pkg = null;
             active = false;
+            main.removeCallbacks(autoTick);
             setDescendantFocusability(FOCUS_BLOCK_DESCENDANTS);
             animate().alpha(0).setDuration(160).withEndAction(() -> { if (pkg == null) setVisibility(GONE); }).start();
             return;
         }
         if (!p.equals(pkg)) load(p);
+        else if (rows.get(tab) != null && System.currentTimeMillis() - rowsAt[tab] > REFRESH_MS) refetch(tab);
+        main.removeCallbacks(autoTick);
+        main.postDelayed(autoTick, TURN_MS);
         setVisibility(VISIBLE);
         animate().alpha(1).setDuration(220).withEndAction(null).start();
     }
@@ -205,6 +230,7 @@ final class ServicePanel extends FrameLayout {
     /** Keys while the panel has the remote; true when used. */
     boolean onKey(KeyEvent e) {
         if (!active) return false;
+        lastKeyAt = android.os.SystemClock.uptimeMillis();
         int code = e.getKeyCode();
         boolean ok = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER;
         boolean arrow = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
@@ -263,6 +289,7 @@ final class ServicePanel extends FrameLayout {
                 main.post(() -> {
                     if (gen != generation) return;
                     rows.set(0, first);
+                    rowsAt[0] = System.currentTimeMillis();
                     if (tab == 0) showPage();
                 });
             } catch (Exception e) {
@@ -335,12 +362,57 @@ final class ServicePanel extends FrameLayout {
                 main.post(() -> {
                     if (gen != generation) return;
                     rows.set(t, got);
+                    rowsAt[t] = System.currentTimeMillis();
                     if (tab == t) showPage();
                 });
             } catch (Exception e) {
                 main.post(() -> { if (gen == generation && tab == t) status.setText(e.getMessage()); });
             }
         }, "service-row").start();
+    }
+
+    /** A tab's titles fetched again in the background; the cards stay until the new ones arrive. */
+    private void refetch(int t) {
+        int gen = generation;
+        rowsAt[t] = System.currentTimeMillis();   // one try per half hour, even if it fails
+        new Thread(() -> {
+            try {
+                List<Tmdb.Title> got = fetchRow(t);
+                main.post(() -> {
+                    if (gen != generation || got.isEmpty()) return;
+                    rows.set(t, got);
+                    if (tab == t) {
+                        page = 0;
+                        if (!(active && section == CARDS)) slide(); else showPage();
+                    }
+                });
+            } catch (Exception ignored) {
+            }
+        }, "service-refresh").start();
+    }
+
+    /** The next page slides in from the right, as the cards turning on their own. */
+    private void slide() {
+        float d = px(60);
+        for (int i = 0; i < 3; i++) {
+            View[] vs = {cards[i], names[i]};
+            for (View v : vs) {
+                v.animate().cancel();
+                v.animate().alpha(0).translationX(-d).setDuration(180).start();
+            }
+        }
+        meta.animate().alpha(0).setDuration(180).start();
+        main.postDelayed(() -> {
+            showPage();
+            for (int i = 0; i < 3; i++) {
+                View[] vs = {cards[i], names[i]};
+                for (View v : vs) {
+                    v.setTranslationX(d);
+                    v.animate().alpha(1).translationX(0).setStartDelay(i * 50L).setDuration(260).start();
+                }
+            }
+            meta.animate().alpha(1).setDuration(260).start();
+        }, 190);
     }
 
     private void turnPage(int dir, int focus) {

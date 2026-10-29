@@ -52,7 +52,8 @@ final class Recs {
 
     private static final String API = "https://api.themoviedb.org/3";
     private static final String IMAGES = "https://image.tmdb.org/t/p/original";
-    private static final long LIST_EVERY = 6 * 3600_000L;
+    /** A fresh list every half hour (repeats are fine: the newest picks and releases come in). */
+    private static final long LIST_EVERY = 30 * 60_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
     private static final int CACHE_VERSION = 4;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
@@ -104,6 +105,8 @@ final class Recs {
     private final Context context;
     private final SharedPreferences cache;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    /** Pictures are read from disk on their own thread: at power-on they don't wait behind the list's network fetch. */
+    private final ExecutorService decode = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Listener> listeners = new ArrayList<>();
     // This hour's, built and ready to draw, in the order they were last drawn: the one unused longest goes first.
@@ -206,7 +209,11 @@ final class Recs {
             Pick p = list.get((int) ((hour * 3 + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
-        return out;
+        // Pictures already on disk first (last time's, at power-on): the cards never open blank while new ones download.
+        List<Pick> ready = new ArrayList<>(), later = new ArrayList<>();
+        for (Pick p : out) (hasImage(p) ? ready : later).add(p);
+        ready.addAll(later);
+        return ready;
     }
 
     /** "Law & Order: Special Victims Unit" → "law & order" (what comes before ":" or " - "). */
@@ -231,7 +238,7 @@ final class Recs {
             if (b != null) return b;
             if (!pending.add(key)) return null;
         }
-        io.execute(() -> {
+        decode.execute(() -> {
             try {
                 loadImage(p);
             } finally {
@@ -283,6 +290,16 @@ final class Recs {
                 }
                 save();
                 if (tried > 0 && failures == tried) throw new IOException(last);
+                notifyListeners();
+                // Then every other pick's details and picture, so the pages the cards turn to on their own are ready.
+                for (Pick pick : new ArrayList<>(picks)) {
+                    try {
+                        if (!pick.detailed) fetchDetails(pick);
+                        if (pick.pkg != null) download(pick);
+                    } catch (Exception ignored) {
+                    }
+                }
+                save();
                 error = "";
                 failedAt = 0;
             } catch (Exception e) {
@@ -774,9 +791,9 @@ final class Recs {
             if (parts[i].lastModified() < stale) parts[i].delete();
         }
         File[] files = dir.listFiles((d, name) -> !name.endsWith(".part"));
-        if (files == null || files.length <= 24) return;
+        if (files == null || files.length <= 48) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
-        for (int i = 0; i < files.length - 24; i++) {
+        for (int i = 0; i < files.length - 48; i++) {
             //noinspection ResultOfMethodCallIgnored
             files[i].delete();
         }

@@ -81,7 +81,7 @@ final class Tmdb {
         if (path.startsWith("/search/")) return 3600_000L;
         if (path.startsWith("/trending/") || path.startsWith("/discover/") || path.contains("/now_playing")
                 || path.contains("/upcoming") || path.contains("/airing_today") || path.contains("/on_the_air")
-                || path.contains("/recommendations")) return 3 * 3600_000L;
+                || path.contains("/recommendations")) return 30 * 60_000L;   // new picks every half hour
         if (path.contains("/images") || path.startsWith("/person/") || path.startsWith("/collection/")
                 || path.contains("/season/") || path.startsWith("/watch/providers") || path.contains("/top_rated")) return 7 * 24 * 3600_000L;
         return 12 * 3600_000L;

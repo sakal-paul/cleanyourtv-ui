@@ -366,6 +366,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             updatePalette();
             checkNight(true);
             updatePicks();      // three new ones every hour
+            autoTurn();
             handler.postDelayed(this, 15_000);
         }
     };
@@ -670,7 +671,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
-        boolean heroMoving = heroFocus.step(dt);
+        boolean heroMoving = heroFocus.step(dt) | cardSlide.step(dt);
         boolean topMoving = step(topFocus, dt), cardsMoving = step(cardFocus, dt);
         if (topMoving) status.invalidate();
         heroMoving |= topMoving | cardsMoving;
@@ -2060,6 +2061,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     boolean onKey(KeyEvent e) {
         wake();
+        lastKeyAt = SystemClock.uptimeMillis();
         boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         if (reordering) return reorderKey(e, down);
         int code = e.getKeyCode();
@@ -2859,6 +2861,28 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /** One page on (1) or back (-1) in the run, into the next or previous tab past its ends, and round. */
+    /** When a key was last pressed: the cards turn on their own only after a quiet moment. */
+    private long lastKeyAt;
+
+    /**
+     * Every tick (15 s), the cards move on to the tab's next three, wrapping at the end, unless the focus is on the
+     * cards or the tabs, a sheet, drawer or service panel is open, or a key was pressed in the last 15 s.
+     */
+    private final Spring cardSlide = new Spring(0.5f, 1f, 0);
+
+    private void autoTurn() {
+        if (zone == Z_CARDS || zone == Z_TOP || sheetOpen || drawerOpen || reordering || topVeil.target < 1) return;
+        if (SystemClock.uptimeMillis() - lastKeyAt < 15_000) return;
+        int pages = tabFirst[tab + 1] - tabFirst[tab];
+        if (pages < 2) return;
+        page = tabFirst[tab] + Math.floorMod(page - tabFirst[tab] + 1, pages);
+        updateCards();
+        cardSlide.snap(1);
+        cardSlide.target = 0;
+        heroDirty = true;
+        wake();
+    }
+
     private void turnPage(int d) {
         page = Math.floorMod(page + d, tabFirst[3]);
         tab = tabOf(page);
@@ -2948,8 +2972,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         int top = -1;
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
+        // Turning on their own, the new cards glide in from the right (cardSlide 1 → 0), fading up as they arrive.
+        float slide = cardSlide.value;
+        int layer = slide > 0.002f ? c.saveLayerAlpha(0, L_CARDS_TOP * k - 40 * k, w, (L_CARDS_TOP + L_CARD_H + 100) * k,
+                Math.round(255 * Ui.clamp(1 - slide))) : -1;
+        if (layer >= 0) c.translate(slide * 140 * k, 0);
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
+        if (layer >= 0) c.restoreToCount(layer);
         if (HomeData.coinCount() > 0) drawQuotes(c);
     }
 
