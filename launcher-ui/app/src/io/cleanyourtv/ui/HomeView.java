@@ -105,8 +105,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TABS_FR = {"Explorer", "Films", "Séries"};
     private static final String[] TABS_TR = {"Keşfet", "Filmler", "Diziler"};
     private static final String[] TABS_HE = {"גילוי", "סרטים", "סדרות"};
-    /** Explore, Movies, Shows, then Trakt's Up Next and Watchlist (empty until the account is connected). */
-    private static final String[] TAB_KIND = {null, "movie", "tv", "upnext", "watchlist"};
+    /** Explore, Movies, Shows, then Trakt's Up Next and Watchlist (empty until the account is connected) and Releases. */
+    private static final String[] TAB_KIND = {null, "movie", "tv", "upnext", "watchlist", "releases"};
     private static final int NT = TAB_KIND.length;
     private static final int Z_TOP = 4, Z_CARDS = 5;
 
@@ -168,9 +168,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private float lCardsTop, lCardH, lCardGap, lCardsLeft, lTallW, lWideW;
     private final Runnable growCard = this::growFocusedCard;
     private final List<HomeApps.Item> lightButtons = new ArrayList<>();
-    private Paint lTitleAmPm, lZoneTime, lZone;
-    private String titleTime = "", titleAmPm = "", kolkataTime = "";
-    private static final java.util.TimeZone KOLKATA = java.util.TimeZone.getTimeZone("Asia/Kolkata");
+    private Paint lTitleAmPm, lZoneTime, lZone, lZoneAmPm;
+    private String titleTime = "", titleAmPm = "", kolkataTime = "", londonTime = "";
+    private static final java.util.TimeZone KOLKATA = java.util.TimeZone.getTimeZone("Asia/Kolkata"),
+            LONDON = java.util.TimeZone.getTimeZone("Europe/London");
     private Paint lTitle, lTab, lTabOn, lCardTitle, lCardMeta, lQuote, lTip, lDate, lClock, lWeather, lClockQuote;
     private Shader lightGradient;
 
@@ -523,7 +524,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static String[] tabs() {
         String[] three = Ui.he ? TABS_HE : Ui.ru ? TABS_RU : Ui.es ? TABS_ES : Ui.de ? TABS_DE : Ui.fr ? TABS_FR : Ui.tur ? TABS_TR : Ui.en ? TABS_EN : TABS;
         if (tabNames == null || tabNames[0] != three[0]) {
-            tabNames = new String[] {three[0], three[1], three[2], Ui.tr("A seguir", "Up Next"), Ui.tr("Minha lista", "Watchlist")};
+            tabNames = new String[] {three[0], three[1], three[2], Ui.tr("A seguir", "Up Next"), Ui.tr("Minha lista", "Watchlist"),
+                    Ui.tr("Lançamentos", "Releases")};
         }
         return tabNames;
     }
@@ -632,6 +634,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lTitleAmPm = Ui.text(Ui.displayMedium, 34 * k, L_INK);
         lZoneTime = Ui.numbers(Ui.displayMedium, 44 * k, L_DIM);
         lZone = Ui.text(Ui.medium, 28 * k, L_DIM);
+        lZoneAmPm = Ui.text(Ui.displayMedium, 22 * k, L_DIM);
         lTab = Ui.text(Ui.medium, 30 * k, L_DIM);
         lTabOn = Ui.text(Ui.semibold, 30 * k, L_INK);
         lCardTitle = Ui.text(Ui.semibold, 31 * k, L_INK);
@@ -806,6 +809,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         java.text.SimpleDateFormat kf = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.US);
         kf.setTimeZone(KOLKATA);
         kolkataTime = kf.format(new java.util.Date(now));
+        kf.setTimeZone(LONDON);
+        londonTime = kf.format(new java.util.Date(now));
         heroDirty = true;
         return true;
     }
@@ -2324,7 +2329,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             if (topIndex < NT) {
                 // OK on a Trakt tab: connect, or once connected the account (who, and Disconnect). Focusing a tab already
                 // selects it, so OK has nothing else to do there.
-                if (topIndex >= 3) {
+                if (topIndex == 3 || topIndex == 4) {
                     click.open();
                     activity.startActivity(new android.content.Intent(activity, TraktLoginActivity.class));
                     return;
@@ -3001,7 +3006,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Context ctx = getContext();
         Trakt.refresh(ctx, false, this::traktChanged);
         for (int t = 0; t < NT; t++) {
-            tabPicks[t] = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : recs.all(TAB_KIND[t]);
+            tabPicks[t] = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : t == 5 ? Trakt.releases(ctx) : recs.all(TAB_KIND[t]);
             int pages = tabPicks[t].isEmpty() ? 0 : Math.max(1, tabPicks[t].size() / 3);
             tabFirst[t + 1] = tabFirst[t] + pages;
         }
@@ -3146,12 +3151,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         float helloX = Ui.he ? CONTENT_R * k - helloW - gap - ampmW : MARGIN * k - Ui.leftBearing(lTitle, hello);
         c.drawText(hello, helloX, L_TITLE_BASE * k, lTitle);
         c.drawText(ampm, helloX + helloW + gap, L_TITLE_BASE * k, lTitleAmPm);
-        // Beside it, Kolkata's time in the secondary colour.
-        lZone.setColor(lTab.getColor());
-        lZoneTime.setColor(lTab.getColor());
+        // Beside it, Kolkata's and London's time in the secondary colour ("1:33 am" with a small AM, then the city).
         float zx = helloX + helloW + gap + ampmW + 44 * k;
-        c.drawText(kolkataTime, zx, L_TITLE_BASE * k, lZoneTime);
-        c.drawText(Ui.tr("Calcutá", "Kolkata"), zx + lZoneTime.measureText(kolkataTime) + 14 * k, L_TITLE_BASE * k, lZone);
+        zx = drawZone(c, zx, kolkataTime, Ui.tr("Calcutá", "Kolkata"));
+        drawZone(c, zx + 40 * k, londonTime, Ui.tr("Londres", "London"));
         // Text tabs (the selected one in bold, in the main text color); with focus on the tabs, the selected one gets
         // the white pill with a shadow and grows a little (the tvOS focus).
         float focus = Ui.clamp(topFocus[tab].value);
@@ -3189,7 +3192,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (top >= 0 && !traktEmpty) drawLightCard(c, top);
         if (layer >= 0) c.restoreToCount(layer);
         if (cards.isEmpty() && tab >= 3) {
-            String msg = !Trakt.signedIn(getContext())
+            String msg = tab == 5 ? Ui.tr("Buscando os lançamentos no Trakt…", "Getting the new releases from Trakt…")
+                    : !Trakt.signedIn(getContext())
                     ? Ui.tr("Conecte sua conta Trakt: suba até esta aba e aperte OK.", "Connect your Trakt account: go up to this tab and press OK.")
                     : tab == 3 ? Ui.tr("Nada a seguir por enquanto. Assista a uma série e ela aparece aqui.", "Nothing up next yet. Shows you're watching appear here.")
                     : Ui.tr("Sua lista está vazia. Segure OK num cartão para salvar.", "Your watchlist is empty. Hold OK on a card to add it.");
@@ -3332,6 +3336,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * Live TV, HDMI Inputs and Settings: icon-only glass circles (light by day, smoked at night); the focused one turns
      * white with a dark icon (the tvOS focus) and its name appears below it.
      */
+    /** "1:33 AM Kolkata" at x: the time, a small AM/PM and the city, in the tabs' grey; returns where it ends. */
+    private float drawZone(Canvas c, float x, String time, String city) {
+        int dim = lTab.getColor();
+        lZone.setColor(dim);
+        lZoneTime.setColor(dim);
+        lZoneAmPm.setColor(dim);
+        float base = L_TITLE_BASE * k;
+        int space = time.lastIndexOf(' ');
+        String hm = space > 0 ? time.substring(0, space) : time, ap = space > 0 ? time.substring(space + 1) : "";
+        c.drawText(hm, x, base, lZoneTime);
+        x += lZoneTime.measureText(hm) + 6 * k;
+        c.drawText(ap, x, base, lZoneAmPm);
+        x += lZoneAmPm.measureText(ap) + 12 * k;
+        c.drawText(city, x, base, lZone);
+        return x + lZone.measureText(city);
+    }
+
     private void drawLightButtons(Canvas c) {
         applyTone();
         for (int i = 0; i < lightButtons.size(); i++) {

@@ -43,7 +43,8 @@ final class Trakt {
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
-    private static List<Recs.Pick> upNext = new ArrayList<>(), watchlist = new ArrayList<>();
+    private static List<Recs.Pick> upNext = new ArrayList<>(), watchlist = new ArrayList<>(), releases = new ArrayList<>();
+    private static final int RELEASES_MAX = 30;
     private static final Set<String> watched = new HashSet<>(), listed = new HashSet<>();
     private static final Map<String, Integer> ratings = new HashMap<>();
     private static final Map<String, String> airing = new HashMap<>(), progress = new HashMap<>();
@@ -189,6 +190,12 @@ final class Trakt {
         return new ArrayList<>(upNext);
     }
 
+    /** The Releases tab (no account needed): Trakt's new releases, as on trakt.tv's Discover → Releases. */
+    static synchronized List<Recs.Pick> releases(Context c) {
+        load(c);
+        return new ArrayList<>(releases);
+    }
+
     static synchronized List<Recs.Pick> watchlist(Context c) {
         load(c);
         return new ArrayList<>(watchlist);
@@ -220,7 +227,7 @@ final class Trakt {
 
     /** Fetches everything again in the background when it's half an hour old (or `force`); `done` runs on the main thread. */
     static void refresh(Context c, boolean force, Runnable done) {
-        if (!signedIn(c)) return;
+        if (!configured()) return;
         synchronized (Trakt.class) {
             load(c);
             if (fetching || (!force && System.currentTimeMillis() - fetchedAt < EVERY)) return;
@@ -243,6 +250,12 @@ final class Trakt {
     }
 
     private static void fetch(Context c) throws Exception {
+        List<Recs.Pick> rel = fetchReleases();
+        synchronized (Trakt.class) { releases = rel; }
+        if (!signedIn(c)) {
+            save(c);
+            return;
+        }
         Set<String> w = new HashSet<>(), l = new HashSet<>();
         Map<String, Integer> r = new HashMap<>();
         Map<String, String> air = new HashMap<>(), prog = new HashMap<>();
@@ -340,6 +353,57 @@ final class Trakt {
         save(c);
     }
 
+    /**
+     * The last two weeks and the next one: films out in cinemas, films and shows arriving on streaming, and new shows,
+     * the most popular on Trakt first (by votes), each with "In cinemas Oct 23", "Streaming Oct 30" or "New show Oct 20".
+     */
+    private static List<Recs.Pick> fetchReleases() throws Exception {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.add(java.util.Calendar.DAY_OF_YEAR, -14);
+        String from = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.getTime());
+        String[][] feeds = {
+            {"/calendars/all/movies/" + from + "/21?extended=full", "movie", Ui.tr("Nos cinemas ", "In cinemas ")},
+            {"/calendars/all/streaming/" + from + "/21?extended=full", "movie", Ui.tr("No streaming ", "Streaming ")},
+            {"/calendars/all/shows/new/" + from + "/21?extended=full", "tv", Ui.tr("Série nova ", "New show ")},
+        };
+        SimpleDateFormat day = new SimpleDateFormat("yyyy-MM-dd", Locale.US), label = new SimpleDateFormat("MMM d", Locale.US);
+        Map<String, Object[]> best = new HashMap<>();   // "kind:id" → {votes, pick}
+        for (String[] f : feeds) {
+            JSONArray a;
+            try {
+                a = new JSONArray(call(null, "GET", f[0], null));
+            } catch (Exception e) {
+                AppLog.w("trakt releases: " + e.getMessage());
+                continue;
+            }
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject it = a.getJSONObject(i);
+                JSONObject o = it.optJSONObject(f[1].equals("movie") ? "movie" : "show");
+                int id = tmdb(o);
+                if (id <= 0) continue;
+                String date = it.optString(f[1].equals("movie") ? "released" : "first_aired");
+                String when = "";
+                try {
+                    Date d = day.parse(date.length() >= 10 ? date.substring(0, 10) : date);
+                    if (d != null) when = label.format(d);
+                } catch (Exception ignored) {
+                }
+                int votes = o.optInt("votes");
+                String key = f[1] + ":" + id;
+                Object[] had = best.get(key);
+                if (had != null && (int) had[0] >= votes) continue;
+                Recs.Pick p = pick(f[1], id, o.optString("title"));
+                p.note = f[2] + when;
+                best.put(key, new Object[] {votes, p});
+            }
+        }
+        List<Object[]> all = new ArrayList<>(best.values());
+        all.sort((x, y) -> Integer.compare((int) y[0], (int) x[0]));
+        List<Recs.Pick> out = new ArrayList<>();
+        for (int i = 0; i < all.size() && out.size() < RELEASES_MAX; i++) out.add((Recs.Pick) all.get(i)[1]);
+        return out;
+    }
+
     private static int tmdb(JSONObject o) {
         JSONObject ids = o == null ? null : o.optJSONObject("ids");
         return ids == null ? 0 : ids.optInt("tmdb");
@@ -358,7 +422,7 @@ final class Trakt {
     private static void save(Context c) {
         try {
             JSONObject o = new JSONObject();
-            o.put("upNext", picks(upNext)).put("watchlist", picks(watchlist));
+            o.put("upNext", picks(upNext)).put("watchlist", picks(watchlist)).put("releases", picks(releases));
             o.put("watched", new JSONArray(watched)).put("listed", new JSONArray(listed));
             o.put("ratings", new JSONObject(ratings)).put("airing", new JSONObject(airing)).put("progress", new JSONObject(progress));
             sp(c).edit().putString("data", o.toString()).apply();
@@ -382,6 +446,7 @@ final class Trakt {
             JSONObject o = new JSONObject(sp(c).getString("data", "{}"));
             upNext = unpack(o.optJSONArray("upNext"));
             watchlist = unpack(o.optJSONArray("watchlist"));
+            releases = unpack(o.optJSONArray("releases"));
             JSONArray a = o.optJSONArray("watched");
             for (int i = 0; a != null && i < a.length(); i++) watched.add(a.getString(i));
             a = o.optJSONArray("listed");
