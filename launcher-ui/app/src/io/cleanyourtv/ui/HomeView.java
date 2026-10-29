@@ -106,7 +106,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final String[] TABS_TR = {"Keşfet", "Filmler", "Diziler"};
     private static final String[] TABS_HE = {"גילוי", "סרטים", "סדרות"};
     /** Explore, Movies, Shows, then Trakt's Up Next and Watchlist (empty until the account is connected) and Releases. */
-    private static final String[] TAB_KIND = {null, "movie", "tv", "upnext", "watchlist", "releases"};
+    private static final String[] TAB_KIND = {null, "movie", "tv", "upnext", "watchlist", "releases", "trending"};
+    /** Releases and Trending are a shelf of posters, six to a page; the other tabs are one wide card and two tall. */
+    private static final int SHELF_FIRST = 5, SHELF_N = 6, MAXC = SHELF_N;
     private static final int NT = TAB_KIND.length;
     private static final int Z_TOP = 4, Z_CARDS = 5;
 
@@ -156,13 +158,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final int TOP_N = NT + 5;   // the tabs, then the five round buttons
     private final Spring[] topFocus = new Spring[TOP_N];
     private final RectF[] topRects = new RectF[TOP_N];
-    private final Spring[] cardFocus = new Spring[3];
-    private final RectF[] cardRects = new RectF[3];
+    private final Spring[] cardFocus = new Spring[MAXC];
+    private final RectF[] cardRects = new RectF[MAXC];
     /** How wide each card is (1: the large one). A tall card the focus rests on for GROW_MS grows into the large one. */
-    private final Spring[] cardWide = new Spring[3];
+    private final Spring[] cardWide = new Spring[MAXC];
     /** The lines under each card: shown (1) or faded out (0) while the card resizes, and whether they are the long ones. */
-    private final Spring[] textShow = new Spring[3];
-    private final boolean[] textWide = {true, false, false};
+    private final Spring[] textShow = new Spring[MAXC];
+    private final boolean[] textWide = {true, false, false, false, false, false};
     private static final long GROW_MS = 1000;
     private int wideSlot, growFor = -1;
     private float lCardsTop, lCardH, lCardGap, lCardsLeft, lTallW, lWideW;
@@ -418,7 +420,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             topFocus[i] = new Spring(0.26f, 0.85f, 0);
             topRects[i] = new RectF();
         }
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < MAXC; i++) {
             cardFocus[i] = new Spring(0.32f, 0.78f, 0);
             cardWide[i] = new Spring(0.4f, 0.9f, i == 0 ? 1 : 0);
             textShow[i] = new Spring(0.14f, 1f, 1);
@@ -525,7 +527,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String[] three = Ui.he ? TABS_HE : Ui.ru ? TABS_RU : Ui.es ? TABS_ES : Ui.de ? TABS_DE : Ui.fr ? TABS_FR : Ui.tur ? TABS_TR : Ui.en ? TABS_EN : TABS;
         if (tabNames == null || tabNames[0] != three[0]) {
             tabNames = new String[] {three[0], three[1], three[2], Ui.tr("A seguir", "Up Next"), Ui.tr("Minha lista", "Watchlist"),
-                    Ui.tr("Lançamentos", "Releases")};
+                    Ui.tr("Lançamentos", "Releases"), Ui.tr("Em alta", "Trending")};
         }
         return tabNames;
     }
@@ -2693,7 +2695,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         for (int i = picksOn() ? 0 : NT; i < NT + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
-        for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
+        for (int i = 0; i < Math.min(perPage(tab), cards.size()); i++) out.add(a11yId(Z_CARDS, i));
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
@@ -2745,7 +2747,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 dy = (i < 3 ? heroLayer : status).getTranslationY();
                 break;
             case Z_CARDS:
-                if (i >= Math.min(3, cards.size())) return false;
+                if (i >= Math.min(perPage(tab), cards.size())) return false;
                 a11yRect.set(cardRects[i]);
                 dy = heroLayer.getTranslationY();
                 break;
@@ -2933,6 +2935,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * while one grows and another shrinks).
      */
     private void placeCards() {
+        if (shelfTab(tab)) {
+            // A bookshelf: six posters (2:3) side by side, each the same, filling the content width.
+            float w = (lWideW + 2 * lTallW + 2 * lCardGap - (SHELF_N - 1) * lCardGap) / SHELF_N, h = w * 1.5f;
+            for (int i = 0; i < MAXC; i++) {
+                float x = lCardsLeft + i * (w + lCardGap);
+                cardRects[i].set(x, lCardsTop, x + w, lCardsTop + h);
+            }
+            if (Ui.he) {
+                float axis = (MARGIN + CONTENT_R) * k;
+                for (RectF r : cardRects) r.set(axis - r.right, r.top, axis - r.left, r.bottom);
+            }
+            return;
+        }
         float sum = 0;
         for (Spring w : cardWide) sum += Math.max(0, w.value);
         float x = lCardsLeft;
@@ -2942,6 +2957,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             cardRects[i].set(x, lCardsTop, x + w, lCardsTop + lCardH);
             x += w + lCardGap;
         }
+        for (int i = 3; i < MAXC; i++) cardRects[i].set(cardRects[2]);   // unused off the shelf
         // Hebrew: the large card on the right, the two tall ones following it leftward (same mirror as the top row).
         if (Ui.he) {
             float axis = (MARGIN + CONTENT_R) * k;
@@ -2958,6 +2974,37 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             textShow[i].target = resizing || textWide[i] != wide ? 0 : 1;
         }
         return step(textShow, dt);
+    }
+
+    private static boolean shelfTab(int t) {
+        return t >= SHELF_FIRST;
+    }
+
+    private static int perPage(int t) {
+        return shelfTab(t) ? SHELF_N : 3;
+    }
+
+    // Posters for the shelf: TMDB's w342, kept for the shelf's pages, fetched in the background.
+    private final android.util.LruCache<String, Bitmap> posters = new android.util.LruCache<>(36);
+    private final java.util.Set<String> postersLoading = new java.util.HashSet<>();
+    private static final java.util.concurrent.ExecutorService POSTER_IO = java.util.concurrent.Executors.newFixedThreadPool(2);
+
+    /** The pick's poster if loaded (and starts loading it); null meanwhile or without one. */
+    private Bitmap poster(Recs.Pick p) {
+        if (p.poster == null) return null;
+        String url = "https://image.tmdb.org/t/p/w342" + p.poster;
+        Bitmap b = posters.get(url);
+        if (b != null || !postersLoading.add(url)) return b;
+        POSTER_IO.execute(() -> {
+            Bitmap got = Images.fetch(url);
+            post(() -> {
+                postersLoading.remove(url);
+                if (got != null) posters.put(url, got);
+                heroDirty = true;
+                wake();
+            });
+        });
+        return null;
     }
 
     /** Makes card `slot` the large one (the others tall). */
@@ -2988,7 +3035,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (want != growFor) {
             growFor = want;
             removeCallbacks(growCard);
-            if (want >= 0 && want != wideSlot) postDelayed(growCard, GROW_MS);
+            if (want >= 0 && want != wideSlot && !shelfTab(tab)) postDelayed(growCard, GROW_MS);
         }
         if (want < 0 && wideSlot != 0) setWide(0, snap);
     }
@@ -3006,8 +3053,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Context ctx = getContext();
         Trakt.refresh(ctx, false, this::traktChanged);
         for (int t = 0; t < NT; t++) {
-            tabPicks[t] = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : t == 5 ? Trakt.releases(ctx) : recs.all(TAB_KIND[t]);
-            int pages = tabPicks[t].isEmpty() ? 0 : Math.max(1, tabPicks[t].size() / 3);
+            tabPicks[t] = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : t == 5 ? Trakt.releases(ctx)
+                    : t == 6 ? Trakt.trending(ctx) : recs.all(TAB_KIND[t]);
+            int pages = tabPicks[t].isEmpty() ? 0 : Math.max(1, (tabPicks[t].size() + perPage(t) - 1) / perPage(t));
             tabFirst[t + 1] = tabFirst[t] + pages;
         }
         int total = tabFirst[NT], pages = tabFirst[tab + 1] - tabFirst[tab];
@@ -3028,6 +3076,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         // Recs keeps the 10 images used last: this page and the two it can turn to (9), or with the focus on the tabs,
         // this page and the other tabs' first pages, so the next move never waits for a photo.
         for (Recs.Pick p : cards) recs.backdrop(p);
+        if (shelfTab(tab)) for (Recs.Pick p : cards) poster(p);
         if (pages > 0 && total > 1) {
             List<Recs.Pick> near = new ArrayList<>();
             if (zone == Z_TOP) {
@@ -3056,8 +3105,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private List<Recs.Pick> pageCards(int p) {
         int t = tabOf(p);
         List<Recs.Pick> all = tabPicks[t];
-        int from = Math.min(all.size(), (p - tabFirst[t]) * 3);
-        return new ArrayList<>(all.subList(from, Math.min(all.size(), from + 3)));
+        int per = perPage(t), from = Math.min(all.size(), (p - tabFirst[t]) * per);
+        return new ArrayList<>(all.subList(from, Math.min(all.size(), from + per)));
     }
 
     /** One page on (1) or back (-1) in the run, into the next or previous tab past its ends, and round. */
@@ -3180,7 +3229,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.drawText(tabs()[i], r.centerX() - p.measureText(tabs()[i]) / 2, r.centerY() + Ui.halfCap(p), p);
         }
         int top = -1;
-        for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
+        int slots = perPage(tab);
+        for (int i = 0; i < slots; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         // Turning on their own, the new cards glide in from the right (cardSlide 1 → 0), fading up as they arrive.
         float slide = cardSlide.value;
         int layer = slide > 0.002f ? c.saveLayerAlpha(0, L_CARDS_TOP * k - 40 * k, w, (L_CARDS_TOP + L_CARD_H + 100) * k,
@@ -3188,11 +3238,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (layer >= 0) c.translate(slide * 140 * k, 0);
         placeCards();
         boolean traktEmpty = cards.isEmpty() && tab >= 3;   // a Trakt tab with nothing: a line instead of gray cards
-        for (int i = 0; i < 3 && !traktEmpty; i++) if (i != top) drawLightCard(c, i);
+        for (int i = 0; i < slots && !traktEmpty; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0 && !traktEmpty) drawLightCard(c, top);
         if (layer >= 0) c.restoreToCount(layer);
         if (cards.isEmpty() && tab >= 3) {
             String msg = tab == 5 ? Ui.tr("Buscando os lançamentos no Trakt…", "Getting the new releases from Trakt…")
+                    : tab == 6 ? Ui.tr("Buscando o que está em alta no Trakt…", "Getting what's trending on Trakt…")
                     : !Trakt.signedIn(getContext())
                     ? Ui.tr("Conecte sua conta Trakt: suba até esta aba e aperte OK.", "Connect your Trakt account: go up to this tab and press OK.")
                     : tab == 3 ? Ui.tr("Nada a seguir por enquanto. Assista a uma série e ela aparece aqui.", "Nothing up next yet. Shows you're watching appear here.")
@@ -3268,6 +3319,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Backdrop b = p == null ? null : recs.backdrop(p);
         // The wide crop at every width (the tall one is its centre), so the photo doesn't switch while a card grows.
         Bitmap img = b == null ? null : b.wide != null ? b.wide : b.tall;
+        boolean shelfCard = shelfTab(tab);
+        if (shelfCard && p != null) {
+            Bitmap pb = poster(p);
+            if (pb != null) img = pb;
+        }
         if (img != null) {
             roundImage(c, img, cell, r);
         } else {
@@ -3306,15 +3362,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             c.translate(cx, cy);
             c.scale(s, s);
             tmp.set(-bw / 2, -bh / 2, bw / 2, bh / 2);
-            float full = Ui.clamp((bw - lTallW) / Math.max(1, lWideW - lTallW));
-            info.draw(c, tmp, r0, p.title, f, k, full, lWideW, lTallW);
+            float full = shelfCard ? 0 : Ui.clamp((bw - lTallW) / Math.max(1, lWideW - lTallW));
+            info.draw(c, tmp, r0, p.title, f, k, full, lWideW, shelfCard ? bw : lTallW);
             c.restore();
         }
         // The lines below, cut to the card's final width: they fade out while the card changes size and come back
         // once it settles, so no letters appear or vanish one by one.
-        float show = Ui.clamp(textShow[i].value);
+        float show = shelfCard ? 1 : Ui.clamp(textShow[i].value);
         if (show < 0.01f) return;
-        float tw = textWide[i] ? lWideW : lTallW;
+        boolean longLine = !shelfCard && textWide[i];
+        float tw = shelfCard ? bw : longLine ? lWideW : lTallW;
         int titleColor = lCardTitle.getColor(), metaColor = lCardMeta.getColor();
         lCardTitle.setColor(Ui.alpha(titleColor, show));
         lCardMeta.setColor(Ui.alpha(metaColor, show));
@@ -3323,7 +3380,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         c.drawText(title, Ui.he ? base.right - lCardTitle.measureText(title) : base.left, base.bottom + 46 * k, lCardTitle);
         if (p.meta != null && !p.meta.isEmpty()) {   // every card: rating first, then genre, length and service
             fitPaint.set(lCardMeta);
-            String line = textWide[i] ? p.meta : shortMeta(p.meta);
+            String line = longLine ? p.meta : shortMeta(p.meta);
             if (p.note != null) line = p.note + " · " + line;   // Up Next: "Next S2 E4 · ★ 8.6 · Drama"
             String meta = TextUtils.ellipsize(line, fitPaint, tw, TextUtils.TruncateAt.END).toString();
             c.drawText(meta, Ui.he ? base.right - lCardMeta.measureText(meta) : base.left, base.bottom + 80 * k, lCardMeta);

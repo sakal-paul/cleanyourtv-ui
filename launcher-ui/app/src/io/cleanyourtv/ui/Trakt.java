@@ -43,7 +43,8 @@ final class Trakt {
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
-    private static List<Recs.Pick> upNext = new ArrayList<>(), watchlist = new ArrayList<>(), releases = new ArrayList<>();
+    private static List<Recs.Pick> upNext = new ArrayList<>(), watchlist = new ArrayList<>(), releases = new ArrayList<>(),
+            trending = new ArrayList<>();
     private static final int RELEASES_MAX = 30;
     private static final Set<String> watched = new HashSet<>(), listed = new HashSet<>();
     private static final Map<String, Integer> ratings = new HashMap<>();
@@ -196,6 +197,12 @@ final class Trakt {
         return new ArrayList<>(releases);
     }
 
+    /** The Trending tab (no account needed): what most people are watching on Trakt right now, films and shows. */
+    static synchronized List<Recs.Pick> trending(Context c) {
+        load(c);
+        return new ArrayList<>(trending);
+    }
+
     static synchronized List<Recs.Pick> watchlist(Context c) {
         load(c);
         return new ArrayList<>(watchlist);
@@ -250,8 +257,11 @@ final class Trakt {
     }
 
     private static void fetch(Context c) throws Exception {
-        List<Recs.Pick> rel = fetchReleases();
-        synchronized (Trakt.class) { releases = rel; }
+        List<Recs.Pick> rel = fetchReleases(), hot = fetchTrending();
+        synchronized (Trakt.class) {
+            releases = rel;
+            if (!hot.isEmpty()) trending = hot;
+        }
         if (!signedIn(c)) {
             save(c);
             return;
@@ -404,6 +414,33 @@ final class Trakt {
         return out;
     }
 
+    /** Trakt's trending films and shows (by people watching now), alternated, each with "1,342 watching". */
+    private static List<Recs.Pick> fetchTrending() {
+        List<List<Recs.Pick>> both = new ArrayList<>();
+        for (String type : new String[] {"shows", "movies"}) {
+            List<Recs.Pick> list = new ArrayList<>();
+            try {
+                JSONArray a = new JSONArray(call(null, "GET", "/" + type + "/trending?limit=" + RELEASES_MAX, null));
+                for (int i = 0; i < a.length(); i++) {
+                    JSONObject it = a.getJSONObject(i), o = it.optJSONObject(type.equals("movies") ? "movie" : "show");
+                    int id = tmdb(o);
+                    if (id <= 0) continue;
+                    Recs.Pick p = pick(type.equals("movies") ? "movie" : "tv", id, o.optString("title"));
+                    p.note = String.format(Locale.US, "%,d", it.optInt("watchers")) + Ui.tr(" assistindo", " watching");
+                    list.add(p);
+                }
+            } catch (Exception e) {
+                AppLog.w("trakt trending: " + e.getMessage());
+            }
+            both.add(list);
+        }
+        List<Recs.Pick> out = new ArrayList<>();
+        for (int i = 0; out.size() < RELEASES_MAX && (i < both.get(0).size() || i < both.get(1).size()); i++) {
+            for (List<Recs.Pick> l : both) if (i < l.size() && out.size() < RELEASES_MAX) out.add(l.get(i));
+        }
+        return out;
+    }
+
     private static int tmdb(JSONObject o) {
         JSONObject ids = o == null ? null : o.optJSONObject("ids");
         return ids == null ? 0 : ids.optInt("tmdb");
@@ -422,7 +459,7 @@ final class Trakt {
     private static void save(Context c) {
         try {
             JSONObject o = new JSONObject();
-            o.put("upNext", picks(upNext)).put("watchlist", picks(watchlist)).put("releases", picks(releases));
+            o.put("upNext", picks(upNext)).put("watchlist", picks(watchlist)).put("releases", picks(releases)).put("trending", picks(trending));
             o.put("watched", new JSONArray(watched)).put("listed", new JSONArray(listed));
             o.put("ratings", new JSONObject(ratings)).put("airing", new JSONObject(airing)).put("progress", new JSONObject(progress));
             sp(c).edit().putString("data", o.toString()).apply();
@@ -447,6 +484,7 @@ final class Trakt {
             upNext = unpack(o.optJSONArray("upNext"));
             watchlist = unpack(o.optJSONArray("watchlist"));
             releases = unpack(o.optJSONArray("releases"));
+            trending = unpack(o.optJSONArray("trending"));
             JSONArray a = o.optJSONArray("watched");
             for (int i = 0; a != null && i < a.length(); i++) watched.add(a.getString(i));
             a = o.optJSONArray("listed");

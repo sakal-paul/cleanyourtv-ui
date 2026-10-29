@@ -45,6 +45,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         boolean detailed;
+        String poster;          // the TMDB poster path (the Releases and Trending shelves)
         String note;            // Trakt: "Next S2 E4" on an Up Next card (not saved with the picks)
         long traktEpisode;      // Trakt: the next episode's id, for Mark as watched
         boolean localized;      // the title reads in the TV's language (not saved: it only orders a fresh list)
@@ -393,7 +394,8 @@ final class Recs {
     void details(List<Pick> shown) {
         final List<Pick> todo = new ArrayList<>();
         synchronized (asked) {
-            for (Pick p : shown) if (!p.detailed && asked.add(key(p))) todo.add(p);
+            // Per pick object: the same title can be a home pick and a Trakt card (two objects), and each needs details.
+            for (Pick p : shown) if (!p.detailed && asked.add(key(p) + "@" + System.identityHashCode(p))) todo.add(p);
         }
         if (todo.isEmpty() || !hasKey(context)) return;
         io.execute(() -> {
@@ -541,6 +543,8 @@ final class Recs {
         p.title = title(p, o);
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
+        String poster = o.optString("poster_path");
+        if (!poster.isEmpty() && !"null".equals(poster)) p.poster = poster;
         List<String> parts = new ArrayList<>();
         JSONArray genres = o.optJSONArray("genres");
         if (p.kind.equals("tv")) parts.add(Ui.tr("Série", "Series"));

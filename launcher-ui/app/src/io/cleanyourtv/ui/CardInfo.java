@@ -244,7 +244,7 @@ final class CardInfo {
         TEXT.setLetterSpacing(0);
 
         float lineMid = base + 44 * k;
-        yearLine(c, x, lineMid, 23 * k, k);
+        yearLine(c, x, lineMid, card.right - 40 * k, 23 * k, k);
 
         float storyTop = lineMid + 26 * k;
         if (!overview.isEmpty()) {
@@ -309,7 +309,7 @@ final class CardInfo {
         c.translate(x, titleTop);
         titleLayout.draw(c);
         c.restore();
-        yearLine(c, x, lineMid, 20 * k, k);
+        yearLine(c, x, lineMid, x + w, 20 * k, k);
         chips(c, x, titleTop - 12 * k - 34 * k, x + w, 19 * k, k);
     }
 
@@ -342,8 +342,8 @@ final class CardInfo {
         return top + h;
     }
 
-    /** "2023 | 16+ | 2 h 49 m": thin bars between, the age rating in an outlined box. */
-    private void yearLine(Canvas c, float x, float mid, float size, float k) {
+    /** "2023 | 16+ | 2 h 49 m": thin bars between, the age rating in an outlined box; what doesn't fit by maxRight is left out. */
+    private void yearLine(Canvas c, float x, float mid, float maxRight, float size, float k) {
         TEXT.setTypeface(Ui.medium);
         TEXT.setTextSize(size);
         TEXT.setColor(SOFT);
@@ -355,12 +355,13 @@ final class CardInfo {
         float half = Ui.halfCap(TEXT), gap = size * 0.6f;
         for (int i = 0; i < 3; i++) {
             if (parts[i].isEmpty()) continue;
+            float tw = TEXT.measureText(parts[i]), need = (first ? 0 : gap) + tw + (i == 1 ? size * 0.8f : 0);
+            if (x + need > maxRight) break;
             if (!first) {
                 c.drawLine(x, mid - size * 0.6f, x, mid + size * 0.6f, LINE);
                 x += gap;
             }
             first = false;
-            float tw = TEXT.measureText(parts[i]);
             if (i == 1) {
                 float pad = size * 0.4f;
                 R.set(x, mid - size * 0.72f, x + tw + 2 * pad, mid + size * 0.72f);
