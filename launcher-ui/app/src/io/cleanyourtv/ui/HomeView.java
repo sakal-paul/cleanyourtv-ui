@@ -393,6 +393,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         activity = a;
         data = HomeData.get(a);
         recs = Recs.get(a);
+        recs.onThumb = () -> {   // a card's preview is in: draw it
+            heroDirty = true;
+            wake();
+        };
         click = new Click(a);
         ui = a.getSharedPreferences("home-ui", Context.MODE_PRIVATE);
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
@@ -2971,6 +2975,49 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return step(textShow, dt);
     }
 
+    /** The last list of each tab whose pictures were ready, kept while a new one gets ready. */
+    private final List<Recs.Pick>[] lastReady = new List[NT];
+    /** The next updateCards follows a key press (tab or page): it may show cards still decoding, as before. */
+    private boolean userMove;
+
+    /**
+     * Of a tab's list, the titles whose picture can show now (on disk; on the shelves, the poster loaded); the others
+     * are fetched in the background and join once ready. With none ready yet, the last ready list stays.
+     */
+    private List<Recs.Pick> readyOnly(int t, List<Recs.Pick> raw) {
+        List<Recs.Pick> ready = new ArrayList<>(), waiting = new ArrayList<>();
+        for (Recs.Pick p : raw) {
+            boolean ok = shelfTab(t) ? posterReady(p) : recs.ready(p);
+            (ok ? ready : waiting).add(p);
+        }
+        if (!waiting.isEmpty()) {
+            List<Recs.Pick> some = waiting.subList(0, Math.min(waiting.size(), 24));
+            if (shelfTab(t)) {
+                recs.details(some);
+                for (Recs.Pick p : some) poster(p);
+            } else {
+                recs.prefetch(some);
+            }
+        }
+        if (!ready.isEmpty()) {
+            lastReady[t] = ready;
+            return ready;
+        }
+        return lastReady[t] != null ? lastReady[t] : raw;
+    }
+
+    private boolean posterReady(Recs.Pick p) {
+        return p.poster != null && posters.get("https://image.tmdb.org/t/p/w342" + p.poster) != null;
+    }
+
+    /** Every card of this list can draw its picture now (decoded in memory, or the poster on a shelf). */
+    private boolean decoded(List<Recs.Pick> list) {
+        for (Recs.Pick p : list) {
+            if (shelfTab(tab) ? !posterReady(p) : recs.backdrop(p) == null) return false;
+        }
+        return true;
+    }
+
     private static boolean shelfTab(int t) {
         return t >= SHELF_FIRST;
     }
@@ -2982,6 +3029,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Posters for the shelf: TMDB's w342, kept for the shelf's pages, fetched in the background.
     private final android.util.LruCache<String, Bitmap> posters = new android.util.LruCache<>(36);
     private final java.util.Set<String> postersLoading = new java.util.HashSet<>();
+    private final Runnable postersIn = this::traktChanged;
     private static final java.util.concurrent.ExecutorService POSTER_IO = java.util.concurrent.Executors.newFixedThreadPool(2);
 
     /** The pick's poster if loaded (and starts loading it); null meanwhile or without one. */
@@ -2995,8 +3043,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             post(() -> {
                 postersLoading.remove(url);
                 if (got != null) posters.put(url, got);
-                heroDirty = true;
-                wake();
+                // Once, after a burst of posters: the shelves take in the titles now ready.
+                removeCallbacks(postersIn);
+                postDelayed(postersIn, 200);
             });
         });
         return null;
@@ -3048,14 +3097,23 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Context ctx = getContext();
         Trakt.refresh(ctx, false, this::traktChanged);
         for (int t = 0; t < NT; t++) {
-            tabPicks[t] = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : t == 5 ? Trakt.releases(ctx)
+            List<Recs.Pick> raw = t == 3 ? Trakt.upNext(ctx) : t == 4 ? Trakt.watchlist(ctx) : t == 5 ? Trakt.releases(ctx)
                     : t == 6 ? Trakt.trending(ctx) : recs.all(TAB_KIND[t]);
+            tabPicks[t] = readyOnly(t, raw);
             int pages = tabPicks[t].isEmpty() ? 0 : Math.max(1, (tabPicks[t].size() + perPage(t) - 1) / perPage(t));
             tabFirst[t + 1] = tabFirst[t] + pages;
         }
         int total = tabFirst[NT], pages = tabFirst[tab + 1] - tabFirst[tab];
         page = tabFirst[tab] + Math.min(inTab, Math.max(0, pages - 1));
         List<Recs.Pick> list = pages > 0 ? pageCards(page) : new ArrayList<>();
+        boolean byUser = userMove;
+        userMove = false;
+        if (!samePicks(list, cards) && !byUser && !cards.isEmpty() && !decoded(list)) {
+            // A refresh or a new list: the cards on screen stay until every new picture is decoded (asked for here;
+            // Recs tells us when each is in, and this runs again). Never a blank card in their place.
+            for (Recs.Pick p : list) recs.backdrop(p);
+            return;
+        }
         if (!samePicks(list, cards)) {
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
@@ -3070,17 +3128,29 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         // Recs keeps the 10 images used last: this page and the two it can turn to (9), or with the focus on the tabs,
         // this page and the other tabs' first pages, so the next move never waits for a photo.
-        for (Recs.Pick p : cards) recs.backdrop(p);
         if (shelfTab(tab)) for (Recs.Pick p : cards) poster(p);
+        else for (Recs.Pick p : cards) recs.backdrop(p);
+        // Previews of every card tab's first two pages, so switching tabs never shows a blank card.
+        for (int t = 0; t < NT; t++) {
+            if (shelfTab(t) || tabPicks[t] == null) continue;
+            for (int i = 0; i < Math.min(6, tabPicks[t].size()); i++) recs.thumb(tabPicks[t].get(i));
+        }
         if (pages > 0 && total > 1) {
-            List<Recs.Pick> near = new ArrayList<>();
+            List<Recs.Pick> near = new ArrayList<>(), full = new ArrayList<>();
             if (zone == Z_TOP) {
-                for (int t = 0; t < NT; t++) if (t != tab && tabFirst[t + 1] > tabFirst[t]) near.addAll(pageCards(tabFirst[t]));
+                for (int t = 0; t < NT; t++) {
+                    if (t == tab || tabFirst[t + 1] <= tabFirst[t]) continue;
+                    List<Recs.Pick> first = pageCards(tabFirst[t]);
+                    near.addAll(first);
+                    if (shelfTab(t)) for (Recs.Pick p : first) poster(p); else full.addAll(first);
+                }
             } else {
                 near.addAll(pageCards(Math.floorMod(page + 1, total)));
                 near.addAll(pageCards(Math.floorMod(page - 1, total)));
+                if (shelfTab(tab)) for (Recs.Pick p : near) poster(p); else full.addAll(near);
             }
-            for (Recs.Pick p : near) recs.backdrop(p);
+            // Full pictures only where a big card will show them (the shelves draw posters).
+            for (Recs.Pick p : full) recs.backdrop(p);
             near.addAll(cards);
             recs.details(near);
         }
@@ -3119,7 +3189,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (SystemClock.uptimeMillis() - lastKeyAt < 15_000) return;
         int pages = tabFirst[tab + 1] - tabFirst[tab];
         if (pages < 2) return;
-        page = tabFirst[tab] + Math.floorMod(page - tabFirst[tab] + 1, pages);
+        int next = tabFirst[tab] + Math.floorMod(page - tabFirst[tab] + 1, pages);
+        List<Recs.Pick> coming = pageCards(next);
+        if (!decoded(coming)) {   // its pictures aren't in yet: ask for them, and turn on a later tick
+            for (Recs.Pick p : coming) recs.backdrop(p);
+            return;
+        }
+        page = next;
         updateCards();
         cardSlide.snap(1);
         cardSlide.target = 0;
@@ -3128,6 +3204,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void turnPage(int d) {
+        userMove = true;
         if (tabFirst[NT] == 0) return;
         page = Math.floorMod(page + d, tabFirst[NT]);
         tab = tabOf(page);
@@ -3136,6 +3213,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void selectTab(int index) {
         if (index == tab) return;
+        userMove = true;
         tab = index;
         page = tabFirst[index];
         updateCards();
@@ -3314,6 +3392,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         Backdrop b = p == null ? null : recs.backdrop(p);
         // The wide crop at every width (the tall one is its centre), so the photo doesn't switch while a card grows.
         Bitmap img = b == null ? null : b.wide != null ? b.wide : b.tall;
+        if (img == null && p != null) img = recs.thumb(p);   // still decoding: its preview, never a blank card
         boolean shelfCard = shelfTab(tab);
         if (shelfCard && p != null) {
             Bitmap pb = poster(p);

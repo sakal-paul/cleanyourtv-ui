@@ -253,6 +253,81 @@ final class Recs {
         return null;
     }
 
+    // Previews: every downloaded picture also kept small (about 640 wide, ~0.3 MB) in memory, so a card whose full
+    // picture is still decoding draws the preview instead of a blank, for the split second until it is in.
+    private final android.util.LruCache<String, Bitmap> thumbs = new android.util.LruCache<>(72);
+    private final java.util.Set<String> thumbing = new java.util.HashSet<>();
+    private final ExecutorService thumbIo = Executors.newSingleThreadExecutor();
+    /** Runs on the main thread when a preview is in (HomeView redraws). */
+    volatile Runnable onThumb;
+
+    /** The pick's small preview if loaded; starts loading it when its picture is on disk. */
+    Bitmap thumb(Pick p) {
+        if (p == null || p.backdrop == null) return null;
+        final String key = p.backdrop;
+        Bitmap t = thumbs.get(key);
+        if (t != null || !hasImage(p)) return t;
+        synchronized (thumbing) {
+            if (!thumbing.add(key)) return null;
+        }
+        final File f = imageFile(p);
+        thumbIo.execute(() -> {
+            try {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(f.getPath(), bounds);
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inPreferredConfig = Bitmap.Config.RGB_565;
+                opts.inSampleSize = 1;
+                while (bounds.outWidth / (opts.inSampleSize * 2) >= 640) opts.inSampleSize *= 2;
+                Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
+                if (b != null) thumbs.put(key, b);
+            } catch (RuntimeException | OutOfMemoryError ignored) {
+            } finally {
+                synchronized (thumbing) { thumbing.remove(key); }
+            }
+            Runnable r = onThumb;
+            if (r != null) main.post(r);
+        });
+        return null;
+    }
+
+    /** The pick's picture is on disk: its card can show without a blank moment. */
+    boolean ready(Pick p) {
+        return hasImage(p);
+    }
+
+    private final java.util.Set<String> prefetching = new java.util.HashSet<>();
+
+    /**
+     * Gets these picks ready in the background (details, then the picture on disk), then tells the listeners, so a
+     * tab only takes a title in once its picture can show.
+     */
+    void prefetch(List<Pick> list) {
+        final List<Pick> todo = new ArrayList<>();
+        synchronized (prefetching) {
+            for (Pick p : list) if (!hasImage(p) && prefetching.add(key(p) + "@" + System.identityHashCode(p))) todo.add(p);
+        }
+        if (todo.isEmpty() || !hasKey(context)) return;
+        io.execute(() -> {
+            boolean got = false;
+            for (Pick p : todo) {
+                try {
+                    if (!p.detailed) fetchDetails(p);
+                    if (p.backdrop != null) {
+                        download(p);
+                        got = true;
+                    }
+                } catch (Exception e) {
+                    AppLog.w("prefetch: " + e.getMessage());
+                } finally {
+                    synchronized (prefetching) { prefetching.remove(key(p) + "@" + System.identityHashCode(p)); }
+                }
+            }
+            if (got) notifyListeners();
+        });
+    }
+
     private boolean hasImage(Pick p) {
         return p.backdrop != null && imageFile(p).exists();
     }
@@ -782,7 +857,8 @@ final class Recs {
             if (forLight != light) return;   // the design changed midway: this one is stale
             synchronized (images) {
                 images.put(p.backdrop, backdrop);
-                while (images.size() > (forLight ? 10 : 4)) images.remove(images.keySet().iterator().next());
+                // This page, the pages around it, and a new page getting ready while the old one still shows.
+                while (images.size() > (forLight ? 14 : 4)) images.remove(images.keySet().iterator().next());
             }
             notifyListeners();
         } catch (IOException | RuntimeException | OutOfMemoryError e) {
