@@ -1,6 +1,7 @@
 {
   "tmdb_key": "",
   "tmdb_region": "auto",
+  "trakt_client_id": "",
   "language": "auto",
   "shelf": [
     "com.netflix.ninja",

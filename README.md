@@ -8,6 +8,10 @@ Browse movies and shows with TMDB, see where each one streams, and open it right
 
 ![Home screen](docs/ui/screenshots/en/home.jpg)
 
+> **This branch (`tv-buttons`)** adds Trakt (Up Next, Watchlist, Releases, Trending), details on the focused card,
+> growing cards, a poster shelf, service pages for Netflix and others, world clocks, and never-blank refreshes.
+> See **[FEATURES.md](FEATURES.md)**.
+
 This repository is a **fork of CleanYourTV**: everything the original has is still here, unchanged (the per-model
 debloat lists in `examples/`, the scripts in `tools/`, the minimal launcher in `launcher/`). CleanYourTV's README is
 **[`README.cleanyourtv.md`](README.cleanyourtv.md)**, kept current with the rest. The fork only **adds** files, and
