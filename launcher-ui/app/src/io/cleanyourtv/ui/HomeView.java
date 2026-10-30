@@ -534,6 +534,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private static String[] tabNames;
 
+    /**
+     * The TV was turned on: new picks for every tab (a different rotation even when TMDB's lists are the same, so the
+     * cards change), and Trakt's lists again. The pictures from last time show until the new ones are in.
+     */
+    void powerOn() {
+        recs.reshuffle();
+        Trakt.refresh(getContext(), true, this::traktChanged);
+        updateCards();
+        heroDirty = true;
+        wake();
+    }
+
     /** Trakt's lists arrived (or changed after an action): the Up Next and Watchlist tabs again. */
     private void traktChanged() {
         updateCards();
@@ -2142,12 +2154,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         if (e.getRepeatCount() == 0) {
                             cardOkAt = SystemClock.uptimeMillis();
                             cardOkDone = false;
-                            handler.postDelayed(cardHint, TraktMenu.MENU_MS);
                             handler.postDelayed(cardDetails, TraktMenu.DETAILS_MS);
                         }
                         return true;   // the remote's repeats while held: nothing
                     }
-                    handler.removeCallbacks(cardHint);
                     handler.removeCallbacks(cardDetails);
                     long held = cardOkAt == 0 ? 0 : SystemClock.uptimeMillis() - cardOkAt;
                     boolean pressedHere = cardOkAt != 0;
@@ -2443,11 +2453,6 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // the title's page opens once, while still held (the release after it opens nothing).
     private long cardOkAt;
     private boolean cardOkDone;
-    private final Runnable cardHint = this::cardHintNow;
-
-    private void cardHintNow() {
-        if (cardOkAt != 0 && heldCard() != null) showToast(TraktMenu.hint());
-    }
     private final Runnable cardDetails = this::openHeldCard;
 
     private void openHeldCard() {

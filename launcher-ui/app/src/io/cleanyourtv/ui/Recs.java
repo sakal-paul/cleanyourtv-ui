@@ -119,6 +119,8 @@ final class Recs {
     private volatile List<Pick> picks = new ArrayList<>();
     private volatile int period = -1;
     private volatile long listAt;
+    /** Moves the rotation on at each power-on, so the cards change even when the list is the same. */
+    private volatile int shuffle;
     private volatile boolean fetching;
     private volatile String error = "";
     private volatile boolean light;     // light design: builds only the cards (all three tabs' cards fit in memory)
@@ -209,7 +211,7 @@ final class Recs {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
         for (int i = 0; i < list.size(); i++) {
-            Pick p = list.get((int) ((hour * 3 + i) % list.size()));
+            Pick p = list.get((int) ((hour * 3 + shuffle * 3 + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
         // Pictures already on disk first (last time's, at power-on): the cards never open blank while new ones download.
@@ -257,6 +259,15 @@ final class Recs {
 
     private File imageFile(Pick p) {
         return new File(new File(context.getCacheDir(), "recs"), p.backdrop.replace("/", ""));
+    }
+
+    /** The TV was turned on: a new list (repeats are fine) and the next titles first; the old cards show meanwhile. */
+    void reshuffle() {
+        shuffle++;
+        listAt = 0;
+        failedAt = 0;
+        refreshIfStale();
+        notifyListeners();
     }
 
     /** With a key: fetches the list if stale or the time of day (morning/afternoon/night) changed; then the details. */

@@ -65,10 +65,4 @@ final class TraktMenu {
         actions.add(() -> {});
         TvUi.popover(a, parent, anchor, title, labels.toArray(new String[0]), which -> actions.get(which).run(), light);
     }
-
-    /** "Let go for the Trakt menu, keep holding for the details", shown when the hold reaches MENU_MS. */
-    static String hint() {
-        return Ui.tr("Solte para o menu do Trakt, ou continue segurando para os detalhes",
-                "Let go for the Trakt menu, or keep holding for details");
-    }
 }

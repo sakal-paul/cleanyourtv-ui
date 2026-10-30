@@ -30,6 +30,14 @@ public class HomeActivity extends Activity {
     }
     private int prefsVersion = Prefs.version;   // settings changed while we were away: start over
 
+    /** The TV coming out of standby: new content on every tab (HomeView.powerOn, ServicePanel.powerOn). */
+    private final android.content.BroadcastReceiver screenOn = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(android.content.Context c, Intent i) {
+            if (home != null) home.powerOn();
+            if (panel != null) panel.powerOn();
+        }
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Ui.init(this);
@@ -44,6 +52,7 @@ public class HomeActivity extends Activity {
         home.toneListener = () -> panel.setNight(home.night());
         getWindow().setBackgroundDrawable(null);
         openFrom(getIntent());
+        registerReceiver(screenOn, new android.content.IntentFilter(Intent.ACTION_SCREEN_ON));
     }
 
     @Override protected void onResume() {
@@ -86,6 +95,10 @@ public class HomeActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        try {
+            unregisterReceiver(screenOn);
+        } catch (IllegalArgumentException ignored) {
+        }
         if (home != null) home.destroy();
         super.onDestroy();
     }

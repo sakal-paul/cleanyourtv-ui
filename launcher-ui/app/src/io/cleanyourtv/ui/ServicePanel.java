@@ -349,6 +349,11 @@ final class ServicePanel extends FrameLayout {
         animate().alpha(1).setDuration(220).withEndAction(null).start();
     }
 
+    /** The TV was turned on: every tab is fetched again the next time a service's page shows. */
+    void powerOn() {
+        for (int i = 0; i < rowsAt.length; i++) rowsAt[i] = 0;
+    }
+
     /** Up from the app row: the panel takes the remote, on the first card in view. */
     boolean enter() {
         if (pkg == null || pageSize() == 0) return false;
@@ -413,11 +418,7 @@ final class ServicePanel extends FrameLayout {
     // held do nothing: each used to open the page again, stacking copies that Back had to close one by one.
     private long okAt;
     private boolean okDone;
-    private final Runnable okHint = this::okHintNow, okDetails = this::okDetailsNow;
-
-    private void okHintNow() {
-        if (okAt != 0 && Trakt.signedIn(activity)) android.widget.Toast.makeText(activity, TraktMenu.hint(), android.widget.Toast.LENGTH_SHORT).show();
-    }
+    private final Runnable okDetails = this::okDetailsNow;
 
     private void okDetailsNow() {
         Tmdb.Title t = focusedTitle();
@@ -436,12 +437,10 @@ final class ServicePanel extends FrameLayout {
             if (e.getRepeatCount() == 0) {
                 okAt = android.os.SystemClock.uptimeMillis();
                 okDone = false;
-                main.postDelayed(okHint, TraktMenu.MENU_MS);
                 main.postDelayed(okDetails, TraktMenu.DETAILS_MS);
             }
             return true;
         }
-        main.removeCallbacks(okHint);
         main.removeCallbacks(okDetails);
         long held = okAt == 0 ? 0 : android.os.SystemClock.uptimeMillis() - okAt;
         boolean pressedHere = okAt != 0;
