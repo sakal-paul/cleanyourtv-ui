@@ -321,9 +321,10 @@ final class CardInfo {
         // Then from Trakt, when connected: "Next: S2 E4 · 6/10", "New episode Thu" or "✓ Watched", and your rating.
         String tag = Trakt.tag(kind, id);
         int mine = Trakt.rating(kind, id);
-        String[] texts = {genre, rating.isEmpty() ? "" : rating + " ★", tag == null ? "" : tag,
+        // The rating first, always: it matters most.
+        String[] texts = {rating.isEmpty() ? "" : rating + " ★", genre, tag == null ? "" : tag,
                 mine > 0 ? Ui.tr("Você ", "You ") + mine + " ♥" : ""};
-        int[] colors = {WHITE, YELLOW, TRAKT, TRAKT};
+        int[] colors = {YELLOW, WHITE, TRAKT, TRAKT};
         for (int i = 0; i < texts.length; i++) {
             if (texts[i].isEmpty()) continue;
             float tw = TEXT.measureText(texts[i]), right = x + tw + 2 * pad;

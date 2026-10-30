@@ -3115,6 +3115,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         if (!samePicks(list, cards)) {
+            // On their own (a turn, a refresh, power-on), the old cards fade out over the new ones: never an empty moment.
+            if (!byUser && !cards.isEmpty() && !list.isEmpty()) {
+                fadeFrom = cards;
+                cardSlide.snap(1);
+                cardSlide.target = 0;
+            } else {
+                fadeFrom = new ArrayList<>();
+                cardSlide.snap(0);
+            }
             cards = list;
             cardIndex = Math.min(cardIndex, Math.max(0, list.size() - 1));
             setWide(0, true);   // a new page starts with its first card large
@@ -3183,6 +3192,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * cards or the tabs, a sheet, drawer or service panel is open, or a key was pressed in the last 15 s.
      */
     private final Spring cardSlide = new Spring(0.5f, 1f, 0);
+    /** The cards being replaced on their own (a turn, a refresh): drawn over the new ones while they fade out. */
+    private List<Recs.Pick> fadeFrom = new ArrayList<>();
 
     private void autoTurn() {
         if (zone == Z_CARDS || zone == Z_TOP || sheetOpen || drawerOpen || reordering || topVeil.target < 1) return;
@@ -3196,9 +3207,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         page = next;
-        updateCards();
-        cardSlide.snap(1);
-        cardSlide.target = 0;
+        updateCards();   // cross-fades from the old cards (updateCards: not a key press)
         heroDirty = true;
         wake();
     }
@@ -3304,16 +3313,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int top = -1;
         int slots = perPage(tab);
         for (int i = 0; i < slots; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
-        // Turning on their own, the new cards glide in from the right (cardSlide 1 → 0), fading up as they arrive.
-        float slide = cardSlide.value;
-        int layer = slide > 0.002f ? c.saveLayerAlpha(0, L_CARDS_TOP * k - 40 * k, w, (L_CARDS_TOP + L_CARD_H + 100) * k,
-                Math.round(255 * Ui.clamp(1 - slide))) : -1;
-        if (layer >= 0) c.translate(slide * 140 * k, 0);
         placeCards();
         boolean traktEmpty = cards.isEmpty() && tab >= 3;   // a Trakt tab with nothing: a line instead of gray cards
         for (int i = 0; i < slots && !traktEmpty; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0 && !traktEmpty) drawLightCard(c, top);
-        if (layer >= 0) c.restoreToCount(layer);
+        // Changing on their own, the new cards are already in place, whole, and the old ones fade out on top of them
+        // (cardSlide 1 → 0): a smooth cross-fade with no empty or dark moment.
+        float slide = cardSlide.value;
+        if (slide > 0.002f && !fadeFrom.isEmpty()) {
+            int layer = c.saveLayerAlpha(0, L_CARDS_TOP * k - 40 * k, w, (L_CARDS_TOP + L_CARD_H + 100) * k,
+                    Math.round(255 * Ui.clamp(slide)));
+            List<Recs.Pick> now = cards;
+            cards = fadeFrom;
+            for (int i = 0; i < Math.min(slots, cards.size()); i++) drawLightCard(c, i);
+            cards = now;
+            c.restoreToCount(layer);
+        }
         if (cards.isEmpty() && tab >= 3) {
             String msg = tab == 5 ? Ui.tr("Buscando os lançamentos no Trakt…", "Getting the new releases from Trakt…")
                     : tab == 6 ? Ui.tr("Buscando o que está em alta no Trakt…", "Getting what's trending on Trakt…")
@@ -3455,7 +3470,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (p.meta != null && !p.meta.isEmpty()) {   // every card: rating first, then genre, length and service
             fitPaint.set(lCardMeta);
             String line = longLine ? p.meta : shortMeta(p.meta);
-            if (p.note != null) line = p.note + " · " + line;   // Up Next: "Next S2 E4 · ★ 8.6 · Drama"
+            if (p.note != null) {
+                // The rating always first, then the Trakt note: "★ 8.6 · 10,919 watching · Drama", "★ 8.1 · Next S2 E4".
+                int dot = line.indexOf(" · ");
+                boolean rated = line.startsWith("★");
+                line = rated ? (dot < 0 ? line + " · " + p.note : line.substring(0, dot) + " · " + p.note + line.substring(dot))
+                        : line.isEmpty() ? p.note : p.note + " · " + line;
+            }
             String meta = TextUtils.ellipsize(line, fitPaint, tw, TextUtils.TruncateAt.END).toString();
             c.drawText(meta, Ui.he ? base.right - lCardMeta.measureText(meta) : base.left, base.bottom + 80 * k, lCardMeta);
         }

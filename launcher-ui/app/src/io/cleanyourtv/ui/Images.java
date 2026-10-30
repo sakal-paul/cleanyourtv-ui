@@ -90,6 +90,18 @@ final class Images {
         });
     }
 
+    /** Gets these into the memory cache in the background (a page about to show), then runs `done` on the main thread. */
+    static void preload(List<String> urls, Runnable done) {
+        POOL.execute(() -> {
+            for (String url : urls) {
+                if (url == null || CACHE.get(url) != null) continue;
+                Bitmap b = fetch(url);
+                if (b != null) CACHE.put(url, b);
+            }
+            MAIN.post(done);
+        });
+    }
+
     /** From the disk cache when fresh, otherwise downloaded and saved. */
     static Bitmap fetch(String url) {
         File f = dir == null ? null : new File(dir, Integer.toHexString(url.hashCode()) + "-" + url.length());

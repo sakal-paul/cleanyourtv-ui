@@ -586,27 +586,51 @@ final class ServicePanel extends FrameLayout {
         }, "service-refresh").start();
     }
 
-    /** The next page slides in from the right, as the cards turning on their own. */
+    private android.widget.ImageView ghost;   // the old page, fading out over the new one
+    private boolean sliding;
+
+    /**
+     * The next page, on its own (every 15 s, or a refresh): its pictures are loaded first, then the old page's look
+     * fades out on top of the new one already in place, so there is never an empty or dark moment.
+     */
     private void slide() {
-        float d = px(60);
+        if (sliding || getWidth() == 0) return;
+        List<Tmdb.Title> r = currentRow();
+        List<String> urls = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
-            View[] vs = {cards[i], names[i], metas[i]};
-            for (View v : vs) {
-                v.animate().cancel();
-                v.animate().alpha(0).translationX(-d).setDuration(180).start();
-            }
+            int at = page * 3 + i;
+            if (at < r.size()) urls.add(WIDE_IMAGE + r.get(at).backdrop);
         }
-        main.postDelayed(() -> {
+        sliding = true;
+        int gen = generation;
+        Images.preload(urls, () -> {
+            sliding = false;
+            if (gen != generation || pkg == null) return;
+            android.graphics.Bitmap snap;
+            try {
+                snap = android.graphics.Bitmap.createBitmap(getWidth(), getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+                draw(new Canvas(snap));
+            } catch (OutOfMemoryError e) {
+                resetWide();
+                showPage();
+                return;
+            }
+            if (ghost == null) {
+                ghost = new android.widget.ImageView(activity);
+                addView(ghost, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            ghost.animate().cancel();
+            ghost.setImageBitmap(snap);
+            ghost.setAlpha(1f);
+            ghost.setVisibility(VISIBLE);
+            ghost.bringToFront();
             resetWide();
             showPage();
-            for (int i = 0; i < 3; i++) {
-                View[] vs = {cards[i], names[i], metas[i]};
-                for (View v : vs) {
-                    v.setTranslationX(d);
-                    v.animate().alpha(1).translationX(0).setStartDelay(i * 50L).setDuration(260).start();
-                }
-            }
-        }, 190);
+            ghost.animate().alpha(0).setDuration(600).setInterpolator(TvUi.EASE).withEndAction(() -> {
+                ghost.setVisibility(GONE);
+                ghost.setImageDrawable(null);
+            }).start();
+        });
     }
 
     private void turnPage(int dir, int focus) {
