@@ -2137,6 +2137,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 // app opens nothing.
                 // Held on a shelf app (~0.5 s): its menu (move, logo and color). A timer, since not every remote repeats a held key, or the
                 // long-press repeat, whichever comes first; the release after a hold opens nothing.
+                if (zone == Z_CARDS && !sheetOpen && !reordering) {
+                    if (down) {
+                        if (e.getRepeatCount() == 0) {
+                            cardOkAt = SystemClock.uptimeMillis();
+                            cardOkDone = false;
+                            handler.postDelayed(cardHint, TraktMenu.MENU_MS);
+                            handler.postDelayed(cardDetails, TraktMenu.DETAILS_MS);
+                        }
+                        return true;   // the remote's repeats while held: nothing
+                    }
+                    handler.removeCallbacks(cardHint);
+                    handler.removeCallbacks(cardDetails);
+                    long held = cardOkAt == 0 ? 0 : SystemClock.uptimeMillis() - cardOkAt;
+                    boolean pressedHere = cardOkAt != 0;
+                    cardOkAt = 0;
+                    if (!pressedHere || cardOkDone || e.isCanceled()) return true;
+                    if (held >= TraktMenu.MENU_MS && heldCard() != null) traktMenu();
+                    else if (spoken.keyClick()) activate();
+                    return true;
+                }
                 if (down) {
                     if (e.getRepeatCount() == 0) {
                         okDown = true;
@@ -2397,7 +2417,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private boolean canHold() {
-        return heldApp() != null || heldCard() != null;
+        return heldApp() != null;
     }
 
     /** The card under the focus, when OK held on it opens the Trakt menu (signed in only). */
@@ -2406,75 +2426,45 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         return cards.get(cardIndex);
     }
 
-    /**
-     * OK held on a card: Add to or Remove from the Trakt watchlist, Mark as watched (an Up Next show: just its next
-     * episode), Rate, Close. The tabs and the card's tags update once Trakt answers.
-     */
+    /** OK held a second on a card, then let go: the Trakt menu (TraktMenu). */
     private void traktMenu() {
-        handler.removeCallbacks(holdStart);
-        holdArmed = false;
         Recs.Pick p = heldCard();
         if (p == null) return;
-        okHeld = true;
-        Context ctx = getContext();
-        java.util.function.Consumer<Boolean> done = ok -> {
-            showToast(ok ? Ui.tr("Salvo no Trakt", "Saved to Trakt") : Ui.tr("O Trakt não respondeu. Tente de novo.", "Trakt didn't answer. Try again."));
-            Trakt.refresh(ctx, true, this::traktChanged);
-        };
-        List<String> labels = new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
-        boolean listed = Trakt.onWatchlist(p.kind, p.id);
-        labels.add(listed ? Ui.tr("Tirar da minha lista", "Remove from watchlist") : Ui.tr("Pôr na minha lista", "Add to watchlist"));
-        actions.add(() -> Trakt.setWatchlist(ctx, p.kind, p.id, !listed, done));
-        long ep = p.kind.equals("tv") ? Trakt.nextEpisode(p.id) : 0;
-        if (ep != 0) {
-            String which = p.note == null ? "" : p.note.replaceFirst("^\\S+ ", "");
-            labels.add(Ui.tr("Marcar ", "Mark ") + which + Ui.tr(" como visto", " as watched"));
-            actions.add(() -> Trakt.markEpisode(ctx, ep, done));
-        } else {
-            labels.add(p.kind.equals("tv") ? Ui.tr("Marcar a série toda como vista", "Mark whole show as watched") : Ui.tr("Marcar como visto", "Mark as watched"));
-            actions.add(() -> Trakt.markWatched(ctx, p.kind, p.id, done));
-        }
-        labels.add(Ui.tr("Avaliar", "Rate"));
-        actions.add(() -> rateMenu(p, done));
-        labels.add(Ui.tr("Fechar", "Close"));
-        actions.add(() -> {});
-        showMenu(cardRects[cardIndex], p.title, labels, actions);
-    }
-
-    private void rateMenu(Recs.Pick p, java.util.function.Consumer<Boolean> done) {
-        int[] values = {10, 8, 6, 4, 2};
-        String[] words = {Ui.tr("Amei", "Loved it"), Ui.tr("Gostei", "Liked it"), Ui.tr("Ok", "It was OK"),
-                Ui.tr("Não gostei", "Didn't like it"), Ui.tr("Odiei", "Hated it")};
-        List<String> labels = new ArrayList<>();
-        List<Runnable> actions = new ArrayList<>();
-        int mine = Trakt.rating(p.kind, p.id);
-        for (int i = 0; i < values.length; i++) {
-            int v = values[i];
-            labels.add("★ " + v + "  " + words[i] + (mine == v ? "  ✓" : ""));
-            actions.add(() -> Trakt.rate(getContext(), p.kind, p.id, v, done));
-        }
-        labels.add(Ui.tr("Fechar", "Close"));
-        actions.add(() -> {});
-        showMenu(cardRects[cardIndex], p.title, labels, actions);
-    }
-
-    private void showMenu(RectF r, String title, List<String> labels, List<Runnable> actions) {
+        RectF r = cardRects[cardIndex];
         int[] at = new int[2];
         getLocationInWindow(at);
         android.graphics.Rect anchor = new android.graphics.Rect(Math.round(r.left) + at[0], Math.round(r.top) + at[1],
                 Math.round(r.right) + at[0], Math.round(r.bottom) + at[1]);
         click.open();
-        TvUi.popover(activity, this, anchor, title, labels.toArray(new String[0]), which -> actions.get(which).run(), night < 0.5f);
+        TraktMenu.show(activity, this, anchor, p.kind, p.id, p.title, p.note, night < 0.5f, this::showToast, this::traktChanged);
+    }
+
+    // OK on a card: a short press opens the title as before; held a second and let go, the Trakt menu; held 2.5 s,
+    // the title's page opens once, while still held (the release after it opens nothing).
+    private long cardOkAt;
+    private boolean cardOkDone;
+    private final Runnable cardHint = this::cardHintNow;
+
+    private void cardHintNow() {
+        if (cardOkAt != 0 && heldCard() != null) showToast(TraktMenu.hint());
+    }
+    private final Runnable cardDetails = this::openHeldCard;
+
+    private void openHeldCard() {
+        if (cardOkAt == 0 || zone != Z_CARDS || cardIndex >= cards.size()) return;
+        cardOkDone = true;
+        Recs.Pick p = cards.get(cardIndex);
+        click.open();
+        DetailActivity.open(getContext(), p.kind, p.id);
     }
 
     /**
      * OK held on an app: a small menu drops from its card: Move (shelf), Logo and color, the app's Android settings
      * (stop it, clear its cache) and Close.
      */
-    /** OK held: the app's menu on the shelf, the Trakt menu on a card. */
+    /** OK held on an app: its menu (cards time their own hold: cardHint, cardDetails). */
     private void holdMenu() {
-        if (heldApp() != null) appMenu(); else traktMenu();
+        appMenu();
     }
 
     private void appMenu() {

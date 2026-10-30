@@ -378,6 +378,7 @@ final class ServicePanel extends FrameLayout {
         boolean arrow = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
                 || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
         if (!ok && !arrow && code != KeyEvent.KEYCODE_BACK) return false;
+        if (ok && section == CARDS) return okOnCard(e);
         if (e.getAction() != KeyEvent.ACTION_DOWN) return true;
         if (code == KeyEvent.KEYCODE_BACK) {
             exit();
@@ -397,15 +398,65 @@ final class ServicePanel extends FrameLayout {
                 markTabs();
             } else if (code == KeyEvent.KEYCODE_DPAD_DOWN) {
                 exit();
-            } else if (ok) {
-                int i = page * 3 + cardIndex;
-                if (i < currentRow().size()) play(currentRow().get(i));
             }
         } else {
             // Tabs, as on the home screen: focusing one selects it.
             if (code == KeyEvent.KEYCODE_DPAD_LEFT && tab > 0) selectTab(tab - 1);
             else if (code == KeyEvent.KEYCODE_DPAD_RIGHT && tab < 2) selectTab(tab + 1);
             else if ((code == KeyEvent.KEYCODE_DPAD_DOWN || ok) && pageSize() > 0) focusCard(0);
+        }
+        return true;
+    }
+
+    // OK on a card, as on the home screen: a short press plays the title (or opens its page); held a second and let
+    // go, the Trakt menu; held 2.5 s, the title's page opens once, while still held. The remote's repeats while OK is
+    // held do nothing: each used to open the page again, stacking copies that Back had to close one by one.
+    private long okAt;
+    private boolean okDone;
+    private final Runnable okHint = this::okHintNow, okDetails = this::okDetailsNow;
+
+    private void okHintNow() {
+        if (okAt != 0 && Trakt.signedIn(activity)) android.widget.Toast.makeText(activity, TraktMenu.hint(), android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private void okDetailsNow() {
+        Tmdb.Title t = focusedTitle();
+        if (okAt == 0 || t == null) return;
+        okDone = true;
+        DetailActivity.open(activity, t.kind, t.id);
+    }
+
+    private Tmdb.Title focusedTitle() {
+        int i = page * 3 + cardIndex;
+        return i < currentRow().size() ? currentRow().get(i) : null;
+    }
+
+    private boolean okOnCard(KeyEvent e) {
+        if (e.getAction() == KeyEvent.ACTION_DOWN) {
+            if (e.getRepeatCount() == 0) {
+                okAt = android.os.SystemClock.uptimeMillis();
+                okDone = false;
+                main.postDelayed(okHint, TraktMenu.MENU_MS);
+                main.postDelayed(okDetails, TraktMenu.DETAILS_MS);
+            }
+            return true;
+        }
+        main.removeCallbacks(okHint);
+        main.removeCallbacks(okDetails);
+        long held = okAt == 0 ? 0 : android.os.SystemClock.uptimeMillis() - okAt;
+        boolean pressedHere = okAt != 0;
+        okAt = 0;
+        Tmdb.Title t = focusedTitle();
+        if (!pressedHere || okDone || e.isCanceled() || t == null) return true;
+        if (held >= TraktMenu.MENU_MS && Trakt.signedIn(activity)) {
+            View card = cards[cardIndex];
+            int[] at = new int[2];
+            card.getLocationInWindow(at);
+            android.graphics.Rect anchor = new android.graphics.Rect(at[0], at[1], at[0] + card.getWidth(), at[1] + card.getHeight());
+            TraktMenu.show(activity, this, anchor, t.kind, t.id, t.name, null, night < 0.5f,
+                    msg -> android.widget.Toast.makeText(activity, msg, android.widget.Toast.LENGTH_SHORT).show(), null);
+        } else {
+            play(t);
         }
         return true;
     }
